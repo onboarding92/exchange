@@ -12,6 +12,7 @@ import Trading from "./pages/Trading";
 import Profile from "./pages/Profile";
 import Security from "./pages/Security";
 import LoginHistory from "./pages/LoginHistory";
+import Kyc from "./pages/Kyc";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 
@@ -26,6 +27,7 @@ function Router() {
       <Route path={"/profile"} component={Profile} />
       <Route path={"/security"} component={Security} />
       <Route path={"/login-history"} component={LoginHistory} />
+      <Route path={"/kyc"} component={Kyc} />
       <Route path={"/admin-login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/404"} component={NotFound} />
