@@ -8,8 +8,10 @@ import { transactionsRouter } from "./routers.transactions";
 import { internalRouter } from "./routers.internal";
 import { supportRouter } from "./routers.support";
 import { adminRouter } from "./routers.admin";
+import { paymentRouter } from "./routers.payment";
 
 export const appRouter = router({
+  payment: paymentRouter,
   auth: authRouter,
   wallet: walletRouter,
   market: marketRouter,
