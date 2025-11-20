@@ -1,10 +1,11 @@
-import { router, authedProcedure } from "./trpc";
+import { router, authedProcedure, publicProcedure } from "./trpc";
 import { z } from "zod";
 import { db } from "./db";
 import { TRPCError } from "@trpc/server";
 import { authenticator } from "otplib";
 import { getTwoFactor } from "./twoFactor";
 import { logInfo, logWarn, logSecurity } from "./logger";
+import { getUsdPrices } from "./marketPrices";
 
 const assetSchema = z
   .string()
@@ -13,6 +14,21 @@ const assetSchema = z
   .regex(/^[A-Z0-9]+$/, "Asset must be uppercase letters/numbers (e.g. BTC, ETH)");
 
 export const walletRouter = router({
+  // === MARKET PRICES (public) ===
+  marketPrices: publicProcedure
+    .input(
+      z.object({
+        assets: z
+          .array(assetSchema)
+          .min(1)
+          .max(50),
+      })
+    )
+    .query(async ({ input }) => {
+      const prices = await getUsdPrices(input.assets);
+      return prices;
+    }),
+
   // Return all wallets (balances) for current user
   balances: authedProcedure.query(({ ctx }) => {
     const rows = db
