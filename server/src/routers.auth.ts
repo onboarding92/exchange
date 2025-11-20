@@ -13,6 +13,7 @@ import {
   disableTwoFactor,
 } from "./twoFactor";
 import { recordLoginEvent, getRecentLogins } from "./loginEvents";
+import { getUserKyc, submitKycDocuments } from "./kyc";
 
 type AttemptInfo = {
   count: number;
@@ -63,6 +64,7 @@ function clearAttempts(map: Map<string, AttemptInfo>, key: string) {
 }
 
 export const authRouter = router({
+  // === REGISTER ===
   register: publicProcedure
     .input(
       z.object({
@@ -101,6 +103,7 @@ export const authRouter = router({
       }
     }),
 
+  // === LOGIN ===
   login: publicProcedure
     .input(
       z.object({
@@ -157,20 +160,21 @@ export const authRouter = router({
 
       clearAttempts(loginFailures, key);
 
-      // Create session cookie
       const token = createSession(row.id, row.email, row.role);
       ctx.res.cookie("session", token, { httpOnly: true, sameSite: "lax" });
 
-      // Record login event (IP + userAgent + suspicion flag)
+      // Record login event
       recordLoginEvent(row.id, ip, userAgent);
 
       return { user: { id: row.id, email: row.email, role: row.role } };
     }),
 
+  // === CURRENT USER ===
   me: publicProcedure.query(({ ctx }) => {
     return { user: ctx.user };
   }),
 
+  // === LOGOUT ===
   logout: authedProcedure.mutation(({ ctx }) => {
     const token = ctx.req.cookies?.session as string | undefined;
     destroySession(token);
@@ -276,4 +280,37 @@ export const authRouter = router({
     const events = getRecentLogins(ctx.user.id, 20);
     return events;
   }),
+
+  // === KYC STATUS: for current user ===
+  kycStatus: authedProcedure.query(({ ctx }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+    return getUserKyc(ctx.user.id);
+  }),
+
+  // === KYC SUBMIT: upload doc metadata (fileKey) ===
+  submitKyc: authedProcedure
+    .input(
+      z.object({
+        documents: z
+          .array(
+            z.object({
+              type: z.string().min(2).max(50),
+              fileKey: z.string().min(1).max(512),
+            })
+          )
+          .min(1)
+          .max(10),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      submitKycDocuments(ctx.user.id, input.documents);
+
+      return { success: true };
+    }),
 });
