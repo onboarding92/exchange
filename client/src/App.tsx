@@ -13,6 +13,7 @@ import Profile from "./pages/Profile";
 import Security from "./pages/Security";
 import LoginHistory from "./pages/LoginHistory";
 import Kyc from "./pages/Kyc";
+import Prices from "./pages/Prices";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
@@ -30,6 +31,7 @@ function Router() {
       <Route path={"/security"} component={Security} />
       <Route path={"/login-history"} component={LoginHistory} />
       <Route path={"/kyc"} component={Kyc} />
+      <Route path={"/prices"} component={Prices} />
       <Route path={"/admin-login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/admin/kyc"} component={AdminKyc} />
