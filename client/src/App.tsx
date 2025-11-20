@@ -14,6 +14,7 @@ import Security from "./pages/Security";
 import LoginHistory from "./pages/LoginHistory";
 import Kyc from "./pages/Kyc";
 import Prices from "./pages/Prices";
+import DepositGateway from "./pages/DepositGateway";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
@@ -25,6 +26,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/wallet"} component={Wallet} />
       <Route path={"/deposit"} component={Deposit} />
+      <Route path={"/deposit/gateway"} component={DepositGateway} />
       <Route path={"/withdraw"} component={Withdraw} />
       <Route path={"/trading"} component={Trading} />
       <Route path={"/profile"} component={Profile} />
