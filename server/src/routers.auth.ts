@@ -5,17 +5,22 @@ import bcrypt from "bcryptjs";
 import { createSession, destroySession } from "./session";
 import { sendEmail } from "./email";
 import { TRPCError } from "@trpc/server";
+import { authenticator } from "otplib";
+import {
+  getTwoFactor,
+  upsertTwoFactor,
+  setTwoFactorEnabled,
+  disableTwoFactor,
+} from "./twoFactor";
 
 type AttemptInfo = {
   count: number;
   firstAttempt: number;
 };
 
-// Maps for tracking attempts in memory
 const loginFailures = new Map<string, AttemptInfo>();
 const registerAttempts = new Map<string, AttemptInfo>();
 
-// Helper: get client IP (best effort)
 function getClientIp(ctx: { req: any }): string {
   const xf = ctx.req.headers["x-forwarded-for"];
   if (typeof xf === "string" && xf.length > 0) {
@@ -25,7 +30,6 @@ function getClientIp(ctx: { req: any }): string {
   return typeof ip === "string" ? ip : "unknown";
 }
 
-// Generic rate limiter: increments attempts and throws if over limit
 function registerAttempt(
   map: Map<string, AttemptInfo>,
   key: string,
@@ -39,7 +43,6 @@ function registerAttempt(
     return;
   }
   if (now - entry.firstAttempt > windowMs) {
-    // window expired -> reset counter
     map.set(key, { count: 1, firstAttempt: now });
     return;
   }
@@ -52,7 +55,6 @@ function registerAttempt(
   }
 }
 
-// Helper to clear attempts on successful login
 function clearAttempts(map: Map<string, AttemptInfo>, key: string) {
   if (map.has(key)) {
     map.delete(key);
@@ -69,11 +71,10 @@ export const authRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const now = new Date().toISOString();
-
-      // Basic rate limit on registration per IP+email
       const ip = getClientIp(ctx as any);
       const key = `${ip}:${input.email.toLowerCase()}`;
-      // max 5 registrations trials per 15 minutes for the same IP+email
+
+      // max 5 registration attempts per 15 minutes per IP+email
       registerAttempt(registerAttempts, key, 5, 15 * 60 * 1000);
 
       const hash = await bcrypt.hash(input.password, 10);
@@ -92,7 +93,6 @@ export const authRouter = router({
 
         return { id: res.lastInsertRowid };
       } catch {
-        // Do NOT leak if user exists or not (generic error)
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Unable to create account. Please try a different email.",
@@ -105,6 +105,7 @@ export const authRouter = router({
       z.object({
         email: z.string().email(),
         password: z.string().min(1),
+        twoFactorCode: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -115,9 +116,7 @@ export const authRouter = router({
         .prepare("SELECT id,email,password,role FROM users WHERE email=?")
         .get(input.email) as any;
 
-      // If no user or no password -> failed attempt
       if (!row || !row.password) {
-        // Track failed login attempts (max 5 fails in 10 minutes)
         registerAttempt(loginFailures, key, 5, 10 * 60 * 1000);
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -127,7 +126,6 @@ export const authRouter = router({
 
       const ok = await bcrypt.compare(input.password, row.password);
       if (!ok) {
-        // Failed password -> increment failures too
         registerAttempt(loginFailures, key, 5, 10 * 60 * 1000);
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -135,7 +133,24 @@ export const authRouter = router({
         });
       }
 
-      // Successful login -> clear failed attempts
+      const twofa = getTwoFactor(row.id);
+      if (twofa && twofa.enabled) {
+        // 2FA enabled: require code
+        if (!input.twoFactorCode) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "TWO_FACTOR_REQUIRED",
+          });
+        }
+        const isValid = authenticator.check(input.twoFactorCode, twofa.secret);
+        if (!isValid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid two-factor code",
+          });
+        }
+      }
+
       clearAttempts(loginFailures, key);
 
       const token = createSession(row.id, row.email, row.role);
@@ -154,4 +169,94 @@ export const authRouter = router({
     ctx.res.clearCookie("session");
     return { success: true };
   }),
+
+  // === 2FA SETUP: generate secret + QR URL ===
+  init2FASetup: authedProcedure.mutation(({ ctx }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+
+    const existing = getTwoFactor(ctx.user.id);
+    if (existing && existing.enabled) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Two-factor authentication is already enabled.",
+      });
+    }
+
+    const secret = authenticator.generateSecret();
+    const otpauthUrl = authenticator.keyuri(
+      ctx.user.email,
+      "BitChange Exchange",
+      secret
+    );
+
+    upsertTwoFactor(ctx.user.id, secret, false);
+
+    return { otpauthUrl, secret }; // secret can be used to generate QR code on client
+  }),
+
+  // === 2FA CONFIRM: verify token and enable ===
+  confirm2FASetup: authedProcedure
+    .input(
+      z.object({
+        token: z.string().min(6).max(8),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      const rec = getTwoFactor(ctx.user.id);
+      if (!rec) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "2FA is not initialized.",
+        });
+      }
+
+      const isValid = authenticator.check(input.token, rec.secret);
+      if (!isValid) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid two-factor code.",
+        });
+      }
+
+      setTwoFactorEnabled(ctx.user.id, true);
+      return { success: true };
+    }),
+
+  // === 2FA DISABLE: require token to disable ===
+  disable2FA: authedProcedure
+    .input(
+      z.object({
+        token: z.string().min(6).max(8),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      const rec = getTwoFactor(ctx.user.id);
+      if (!rec || !rec.enabled) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Two-factor authentication is not enabled.",
+        });
+      }
+
+      const isValid = authenticator.check(input.token, rec.secret);
+      if (!isValid) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid two-factor code.",
+        });
+      }
+
+      disableTwoFactor(ctx.user.id);
+      return { success: true };
+    }),
 });
