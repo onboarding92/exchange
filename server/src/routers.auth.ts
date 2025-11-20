@@ -13,7 +13,12 @@ import {
   disableTwoFactor,
 } from "./twoFactor";
 import { recordLoginEvent, getRecentLogins } from "./loginEvents";
-import { getUserKyc, submitKycDocuments } from "./kyc";
+import {
+  getUserKyc,
+  submitKycDocuments,
+  getPendingKycSubmissions,
+  reviewKycForUser,
+} from "./kyc";
 
 type AttemptInfo = {
   count: number;
@@ -310,6 +315,38 @@ export const authRouter = router({
       }
 
       submitKycDocuments(ctx.user.id, input.documents);
+
+      return { success: true };
+    }),
+
+  // === ADMIN: list pending KYC submissions ===
+  adminListKycPending: authedProcedure.query(({ ctx }) => {
+    if (!ctx.user || ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+    return getPendingKycSubmissions();
+  }),
+
+  // === ADMIN: review a user KYC ===
+  adminReviewKyc: authedProcedure
+    .input(
+      z.object({
+        userId: z.number().int().positive(),
+        status: z.enum(["verified", "rejected"]),
+        reviewNote: z.string().max(1000).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      if (!ctx.user || ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      reviewKycForUser(
+        input.userId,
+        input.status,
+        input.reviewNote,
+        ctx.user.id
+      );
 
       return { success: true };
     }),

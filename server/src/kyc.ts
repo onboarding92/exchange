@@ -14,6 +14,13 @@ export type KycDocumentRecord = {
   reviewNote: string | null;
 };
 
+export type KycAdminSubmission = {
+  userId: number;
+  email: string;
+  status: KycStatus;
+  documents: KycDocumentRecord[];
+};
+
 // Create KYC documents table if it does not exist
 db.prepare(`
   CREATE TABLE IF NOT EXISTS userKycDocuments (
@@ -89,4 +96,66 @@ export function getUserKyc(userId: number): {
     (user?.kycStatus as KycStatus | undefined) ?? ("unverified" as KycStatus);
 
   return { status, documents: docs };
+}
+
+/**
+ * Admin: get all pending KYC submissions (grouped by user).
+ */
+export function getPendingKycSubmissions(): KycAdminSubmission[] {
+  const users = db
+    .prepare(
+      "SELECT id,email,kycStatus FROM users WHERE kycStatus = 'pending' ORDER BY id ASC"
+    )
+    .all() as { id: number; email: string; kycStatus: string }[];
+
+  const out: KycAdminSubmission[] = [];
+
+  for (const u of users) {
+    const docs = db
+      .prepare(
+        `SELECT id,userId,type,fileKey,status,createdAt,reviewedAt,reviewedBy,reviewNote
+         FROM userKycDocuments
+         WHERE userId = ?
+         ORDER BY createdAt DESC, id DESC`
+      )
+      .all(u.id) as KycDocumentRecord[];
+
+    out.push({
+      userId: u.id,
+      email: u.email,
+      status: (u.kycStatus as KycStatus) ?? "pending",
+      documents: docs,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Admin: review a user KYC (verify or reject).
+ * - Update all docs for that user to the new status
+ * - Set review metadata
+ * - Update users.kycStatus accordingly
+ */
+export function reviewKycForUser(
+  userId: number,
+  newStatus: Exclude<KycStatus, "unverified" | "pending">,
+  reviewNote: string | undefined,
+  adminId: number
+) {
+  const now = new Date().toISOString();
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE userKycDocuments
+       SET status = ?, reviewedAt = ?, reviewedBy = ?, reviewNote = ?
+       WHERE userId = ?`
+    ).run(newStatus, now, adminId, reviewNote ?? null, userId);
+
+    db.prepare(
+      "UPDATE users SET kycStatus = ?, updatedAt = ? WHERE id = ?"
+    ).run(newStatus, now, userId);
+  });
+
+  tx();
 }
