@@ -19,6 +19,7 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
 import AdminLogs from "./pages/AdminLogs";
+import AdminPayments from "./pages/AdminPayments";
 
 function Router() {
   return (
@@ -38,6 +39,7 @@ function Router() {
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/admin/kyc"} component={AdminKyc} />
       <Route path={"/admin/logs"} component={AdminLogs} />
+      <Route path={"/admin/payments"} component={AdminPayments} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

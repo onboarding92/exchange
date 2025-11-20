@@ -1,8 +1,37 @@
 import { router, adminProcedure } from "./trpc";
 import { db } from "./db";
 import { sendEmail } from "./email";
+import { adminListDeposits } from "./adminDeposits";
 
 export const adminRouter = router({
+
+  // List deposits (with provider info) for admins
+  listDeposits: authedProcedure
+    .input(
+      z
+        .object({
+          status: z.string().max(50).optional(),
+          provider: z.string().max(50).optional(),
+          limit: z.number().int().positive().max(500).optional(),
+          offset: z.number().int().nonnegative().optional(),
+        })
+        .optional()
+    )
+    .query(({ ctx, input }) => {
+      if (!ctx.user || ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      const rows = adminListDeposits({
+        status: input?.status,
+        provider: input?.provider,
+        limit: input?.limit,
+        offset: input?.offset,
+      });
+
+      return rows;
+    }),
+
   stats: adminProcedure.query(() => {
     const users = db.prepare("SELECT COUNT(*) as c FROM users").get() as any;
     const deposits = db.prepare("SELECT COUNT(*) as c FROM deposits").get() as any;
