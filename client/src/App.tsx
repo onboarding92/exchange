@@ -11,6 +11,7 @@ import Withdraw from "./pages/Withdraw";
 import Trading from "./pages/Trading";
 import Profile from "./pages/Profile";
 import Security from "./pages/Security";
+import LoginHistory from "./pages/LoginHistory";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 
@@ -24,6 +25,7 @@ function Router() {
       <Route path={"/trading"} component={Trading} />
       <Route path={"/profile"} component={Profile} />
       <Route path={"/security"} component={Security} />
+      <Route path={"/login-history"} component={LoginHistory} />
       <Route path={"/admin-login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/404"} component={NotFound} />
