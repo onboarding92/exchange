@@ -16,6 +16,7 @@ import Kyc from "./pages/Kyc";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
+import AdminLogs from "./pages/AdminLogs";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
       <Route path={"/admin-login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/admin/kyc"} component={AdminKyc} />
+      <Route path={"/admin/logs"} component={AdminLogs} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

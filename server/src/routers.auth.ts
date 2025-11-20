@@ -19,7 +19,13 @@ import {
   getPendingKycSubmissions,
   reviewKycForUser,
 } from "./kyc";
-import { logInfo, logWarn, logError, logSecurity } from "./logger";
+import {
+  logInfo,
+  logWarn,
+  logError,
+  logSecurity,
+  getRecentLogs,
+} from "./logger";
 
 type AttemptInfo = {
   count: number;
@@ -402,5 +408,30 @@ export const authRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // === ADMIN: list logs ===
+  adminListLogs: authedProcedure
+    .input(
+      z
+        .object({
+          level: z.enum(["info", "warn", "error", "security"]).optional(),
+          search: z.string().max(200).optional(),
+          limit: z.number().int().positive().max(500).optional(),
+        })
+        .optional()
+    )
+    .query(({ ctx, input }) => {
+      if (!ctx.user || ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      }
+
+      const logs = getRecentLogs({
+        level: input?.level,
+        search: input?.search,
+        limit: input?.limit ?? 100,
+      });
+
+      return logs;
     }),
 });
