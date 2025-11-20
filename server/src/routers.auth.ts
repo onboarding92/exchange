@@ -193,7 +193,7 @@ export const authRouter = router({
 
     upsertTwoFactor(ctx.user.id, secret, false);
 
-    return { otpauthUrl, secret }; // secret can be used to generate QR code on client
+    return { otpauthUrl, secret };
   }),
 
   // === 2FA CONFIRM: verify token and enable ===
