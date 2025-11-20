@@ -289,15 +289,4 @@ This project already has a lot of functionality, but there are still many things
   - Login, deposit, trade, withdraw, staking, promo.
 - [ ] Add load testing for the trading and wallet routes.
 
----
-
-## Notes
-
-This repo is intentionally built as a **teaching / demo project**.  
-If you plan to adapt it into something exposed to real users or funds, you must:
-
-- Perform a thorough **security review**.
-- Integrate with battle-tested wallet / custody infrastructure.
-- Add robust monitoring, backups, and incident response procedures.
-
-Use this as a solid starting point, not as a production-ready solution.
+--
