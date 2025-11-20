@@ -19,6 +19,7 @@ import {
   getPendingKycSubmissions,
   reviewKycForUser,
 } from "./kyc";
+import { logInfo, logWarn, logError, logSecurity } from "./logger";
 
 type AttemptInfo = {
   count: number;
@@ -55,6 +56,7 @@ function registerAttempt(
   }
   entry.count += 1;
   if (entry.count > limit) {
+    logWarn("Rate limit exceeded", { key, limit, windowMs });
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message: "Too many attempts. Please try again later.",
@@ -99,8 +101,11 @@ export const authRouter = router({
           "Your account has been created successfully."
         );
 
+        logInfo("User registered", { userId: res.lastInsertRowid, email: input.email, ip });
+
         return { id: res.lastInsertRowid };
-      } catch {
+      } catch (err) {
+        logWarn("Registration failed", { email: input.email, ip, error: String(err) });
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Unable to create account. Please try a different email.",
@@ -131,6 +136,10 @@ export const authRouter = router({
 
       if (!row || !row.password) {
         registerAttempt(loginFailures, key, 5, 10 * 60 * 1000);
+        logWarn("Login failed: unknown email or missing password", {
+          email: input.email,
+          ip,
+        });
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "Invalid credentials",
@@ -140,6 +149,11 @@ export const authRouter = router({
       const ok = await bcrypt.compare(input.password, row.password);
       if (!ok) {
         registerAttempt(loginFailures, key, 5, 10 * 60 * 1000);
+        logWarn("Login failed: invalid password", {
+          userId: row.id,
+          email: row.email,
+          ip,
+        });
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "Invalid credentials",
@@ -149,6 +163,11 @@ export const authRouter = router({
       const twofa = getTwoFactor(row.id);
       if (twofa && twofa.enabled) {
         if (!input.twoFactorCode) {
+          logWarn("Login blocked: 2FA required but not provided", {
+            userId: row.id,
+            email: row.email,
+            ip,
+          });
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "TWO_FACTOR_REQUIRED",
@@ -156,6 +175,11 @@ export const authRouter = router({
         }
         const isValid = authenticator.check(input.twoFactorCode, twofa.secret);
         if (!isValid) {
+          logWarn("2FA validation failed on login", {
+            userId: row.id,
+            email: row.email,
+            ip,
+          });
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Invalid two-factor code",
@@ -170,6 +194,12 @@ export const authRouter = router({
 
       // Record login event
       recordLoginEvent(row.id, ip, userAgent);
+      logInfo("User login successful", {
+        userId: row.id,
+        email: row.email,
+        ip,
+        userAgent,
+      });
 
       return { user: { id: row.id, email: row.email, role: row.role } };
     }),
@@ -182,6 +212,9 @@ export const authRouter = router({
   // === LOGOUT ===
   logout: authedProcedure.mutation(({ ctx }) => {
     const token = ctx.req.cookies?.session as string | undefined;
+    if (ctx.user) {
+      logInfo("User logout", { userId: ctx.user.id, email: ctx.user.email });
+    }
     destroySession(token);
     ctx.res.clearCookie("session");
     return { success: true };
@@ -209,6 +242,7 @@ export const authRouter = router({
     );
 
     upsertTwoFactor(ctx.user.id, secret, false);
+    logInfo("2FA setup initiated", { userId: ctx.user.id, email: ctx.user.email });
 
     return { otpauthUrl, secret };
   }),
@@ -235,6 +269,7 @@ export const authRouter = router({
 
       const isValid = authenticator.check(input.token, rec.secret);
       if (!isValid) {
+        logWarn("2FA confirm failed", { userId: ctx.user.id, token: input.token });
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "Invalid two-factor code.",
@@ -242,6 +277,7 @@ export const authRouter = router({
       }
 
       setTwoFactorEnabled(ctx.user.id, true);
+      logInfo("2FA enabled", { userId: ctx.user.id, email: ctx.user.email });
       return { success: true };
     }),
 
@@ -267,6 +303,10 @@ export const authRouter = router({
 
       const isValid = authenticator.check(input.token, rec.secret);
       if (!isValid) {
+        logWarn("2FA disable failed (invalid code)", {
+          userId: ctx.user.id,
+          token: input.token,
+        });
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "Invalid two-factor code.",
@@ -274,6 +314,7 @@ export const authRouter = router({
       }
 
       disableTwoFactor(ctx.user.id);
+      logSecurity("2FA disabled", { userId: ctx.user.id, email: ctx.user.email });
       return { success: true };
     }),
 
@@ -315,6 +356,11 @@ export const authRouter = router({
       }
 
       submitKycDocuments(ctx.user.id, input.documents);
+      logInfo("KYC submitted", {
+        userId: ctx.user.id,
+        email: ctx.user.email,
+        docCount: input.documents.length,
+      });
 
       return { success: true };
     }),
@@ -347,6 +393,13 @@ export const authRouter = router({
         input.reviewNote,
         ctx.user.id
       );
+
+      logSecurity("KYC reviewed", {
+        adminId: ctx.user.id,
+        userId: input.userId,
+        newStatus: input.status,
+        reviewNote: input.reviewNote,
+      });
 
       return { success: true };
     }),

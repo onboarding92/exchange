@@ -4,6 +4,13 @@ import { db } from "./db";
 import { TRPCError } from "@trpc/server";
 import { authenticator } from "otplib";
 import { getTwoFactor } from "./twoFactor";
+import { logInfo, logWarn, logSecurity } from "./logger";
+
+const assetSchema = z
+  .string()
+  .min(2)
+  .max(20)
+  .regex(/^[A-Z0-9]+$/, "Asset must be uppercase letters/numbers (e.g. BTC, ETH)");
 
 export const walletRouter = router({
   // Return all wallets (balances) for current user
@@ -43,9 +50,9 @@ export const walletRouter = router({
   createDeposit: authedProcedure
     .input(
       z.object({
-        asset: z.string().min(2),
-        amount: z.number().positive(),
-        gateway: z.string().min(2),
+        asset: assetSchema,
+        amount: z.number().positive().max(1_000_000_000),
+        gateway: z.string().min(2).max(50),
       })
     )
     .mutation(({ input, ctx }) => {
@@ -63,6 +70,13 @@ export const walletRouter = router({
         now
       );
 
+      logInfo("Deposit request created", {
+        userId: ctx.user!.id,
+        asset: input.asset,
+        amount: input.amount,
+        gateway: input.gateway,
+      });
+
       return { success: true };
     }),
 
@@ -70,9 +84,9 @@ export const walletRouter = router({
   requestWithdrawal: authedProcedure
     .input(
       z.object({
-        asset: z.string().min(2),
-        amount: z.number().positive(),
-        address: z.string().min(10),
+        asset: assetSchema,
+        amount: z.number().positive().max(1_000_000_000),
+        address: z.string().min(10).max(200),
         twoFactorCode: z.string().optional(),
       })
     )
@@ -87,6 +101,12 @@ export const walletRouter = router({
         .get(ctx.user!.id, input.asset) as { balance: number } | undefined;
 
       if (!wallet || wallet.balance <= 0 || wallet.balance < input.amount) {
+        logWarn("Withdrawal failed: insufficient balance", {
+          userId: ctx.user!.id,
+          asset: input.asset,
+          requestedAmount: input.amount,
+          balance: wallet?.balance ?? 0,
+        });
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Insufficient balance for withdrawal.",
@@ -97,6 +117,11 @@ export const walletRouter = router({
       const twofa = getTwoFactor(ctx.user!.id);
       if (twofa && twofa.enabled) {
         if (!input.twoFactorCode) {
+          logWarn("Withdrawal blocked: 2FA required but not provided", {
+            userId: ctx.user!.id,
+            asset: input.asset,
+            amount: input.amount,
+          });
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "TWO_FACTOR_REQUIRED_WITHDRAWAL",
@@ -104,6 +129,11 @@ export const walletRouter = router({
         }
         const isValid = authenticator.check(input.twoFactorCode, twofa.secret);
         if (!isValid) {
+          logWarn("Withdrawal blocked: invalid 2FA code", {
+            userId: ctx.user!.id,
+            asset: input.asset,
+            amount: input.amount,
+          });
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Invalid two-factor code for withdrawal.",
@@ -124,8 +154,14 @@ export const walletRouter = router({
         now
       );
 
-      // Optional: you can choose to freeze or subtract balance here.
-      // For demo: we leave the actual balance unchanged and let admin approval handle accounting.
+      logSecurity("Withdrawal request created", {
+        userId: ctx.user!.id,
+        asset: input.asset,
+        amount: input.amount,
+        address: input.address,
+      });
+
+      // For a real exchange, you might decrement available balance here or lock funds.
 
       return { success: true };
     }),
