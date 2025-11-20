@@ -55,9 +55,27 @@ export default function DepositGateway() {
   const [fiatAmount, setFiatAmount] = useState<string>("100");
   const [walletAddress, setWalletAddress] = useState<string>("");
 
+  const numericAmount = Number(fiatAmount || "0");
+
+  const quoteQuery = trpc.payment.getQuote.useQuery(
+    {
+      provider: (provider || "moonpay") as any,
+      asset,
+      fiatCurrency,
+      fiatAmount: numericAmount > 0 ? numericAmount : 0,
+    },
+    {
+      enabled:
+        isAuthenticated &&
+        !loading &&
+        !!provider &&
+        numericAmount > 0,
+      retry: 1,
+    }
+  );
+
   const createOrderMutation = trpc.payment.createOrder.useMutation({
     onSuccess(data) {
-      // redirect user to provider checkout
       if (data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       }
@@ -104,8 +122,7 @@ export default function DepositGateway() {
     e.preventDefault();
     if (!provider) return;
 
-    const amountNum = Number(fiatAmount);
-    if (!amountNum || amountNum <= 0) {
+    if (!numericAmount || numericAmount <= 0) {
       return;
     }
 
@@ -113,11 +130,13 @@ export default function DepositGateway() {
       provider: provider as any,
       asset,
       fiatCurrency,
-      fiatAmount: amountNum,
+      fiatAmount: numericAmount,
       walletAddress,
-      redirectUrl: window.location.origin + "/deposit", // after checkout MoonPay returns here
+      redirectUrl: window.location.origin + "/deposit",
     });
   };
+
+  const quote = quoteQuery.data;
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,25 +153,26 @@ export default function DepositGateway() {
               redirected to the provider&apos;s secure checkout.
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/deposit")}
-          >
-            Back to deposits
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/deposit")}
+            >
+              Back to deposits
+            </Button>
+          </div>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle>Start a new deposit</CardTitle>
             <CardDescription>
-              Choose a provider, asset, and amount. After you complete payment on the
-              provider&apos;s side, the deposit will be updated automatically (via
-              webhook) on your account.
+              Choose a provider, asset, and amount. We&apos;ll show you an estimated
+              crypto amount before redirecting you to the provider&apos;s checkout.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             {providersQuery.isError && (
               <div className="mb-4 flex items-start gap-2 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 mt-0.5" />
@@ -250,6 +270,46 @@ export default function DepositGateway() {
                     directly here. Deposits sent to a wrong address cannot be recovered.
                   </p>
                 </div>
+
+                {/* Quote box */}
+                {provider && numericAmount > 0 && (
+                  <div className="rounded-md border p-3 text-sm">
+                    {quoteQuery.isLoading || quoteQuery.isFetching ? (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Fetching quote from {provider}...</span>
+                      </div>
+                    ) : quoteQuery.isError || !quote ? (
+                      <div className="flex items-start gap-2 text-muted-foreground">
+                        <AlertCircle className="h-4 w-4 mt-0.5" />
+                        <span>
+                          Could not fetch a quote from {provider}. You can still
+                          continue, but the final amount will be shown on the
+                          provider&apos;s checkout.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <p>
+                          Estimated receive:{" "}
+                          <span className="font-semibold">
+                            {quote.cryptoAmount.toFixed(8)} {asset}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Fiat amount: {quote.fiatAmount.toFixed(2)} {fiatCurrency} •
+                          Estimated total fees (provider + network):{" "}
+                          {quote.fees.toFixed(2)} {fiatCurrency}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          This is an indicative quote provided by the gateway. Final
+                          price may differ slightly due to market movements and provider
+                          terms.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end">
                   <Button

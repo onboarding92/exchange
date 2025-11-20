@@ -14,27 +14,51 @@ const providerEnum = z.enum([
   "coingate",
 ]);
 
+const assetSchema = z
+  .string()
+  .min(2)
+  .max(20)
+  .regex(/^[A-Z0-9]+$/, "Asset must be uppercase letters/numbers (e.g. BTC, ETH)");
+
+const fiatSchema = z
+  .string()
+  .min(3)
+  .max(3)
+  .regex(/^[A-Z]{3}$/, "Fiat currency must be a 3-letter code (e.g. USD, EUR)");
+
 export const paymentRouter = router({
   // List available providers
   listProviders: publicProcedure.query(() => {
     return listGateways();
   }),
 
+  // Get a price quote from a provider (currently implemented for MoonPay)
+  getQuote: authedProcedure
+    .input(
+      z.object({
+        provider: providerEnum,
+        asset: assetSchema,
+        fiatCurrency: fiatSchema,
+        fiatAmount: z.number().positive().max(1_000_000),
+      })
+    )
+    .query(async ({ input }) => {
+      const gw = getGateway(input.provider);
+      const quote = await gw.getQuote({
+        asset: input.asset,
+        fiatCurrency: input.fiatCurrency,
+        fiatAmount: input.fiatAmount,
+      });
+      return quote;
+    }),
+
   // Create a new buy order via a payment gateway
   createOrder: authedProcedure
     .input(
       z.object({
         provider: providerEnum,
-        asset: z
-          .string()
-          .min(2)
-          .max(20)
-          .regex(/^[A-Z0-9]+$/, "Asset must be uppercase letters/numbers (e.g. BTC, ETH)"),
-        fiatCurrency: z
-          .string()
-          .min(3)
-          .max(3)
-          .regex(/^[A-Z]{3}$/, "Fiat currency must be a 3-letter code (e.g. USD, EUR)"),
+        asset: assetSchema,
+        fiatCurrency: fiatSchema,
         fiatAmount: z.number().positive().max(1_000_000),
         walletAddress: z.string().min(10).max(200),
         redirectUrl: z.string().url(),
@@ -44,7 +68,6 @@ export const paymentRouter = router({
       const user = ctx.user!;
       const gw = getGateway(input.provider);
 
-      // Build order for adapter
       const orderReq = {
         userId: user.id,
         asset: input.asset,
@@ -57,7 +80,6 @@ export const paymentRouter = router({
 
       const now = new Date().toISOString();
 
-      // Insert logical deposit tied to this external provider order
       const stmt = db.prepare(
         `INSERT INTO deposits
           (userId, asset, amount, gateway, status, createdAt, provider, providerOrderId, providerRaw)
