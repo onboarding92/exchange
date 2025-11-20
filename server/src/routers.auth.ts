@@ -12,6 +12,7 @@ import {
   setTwoFactorEnabled,
   disableTwoFactor,
 } from "./twoFactor";
+import { recordLoginEvent, getRecentLogins } from "./loginEvents";
 
 type AttemptInfo = {
   count: number;
@@ -111,6 +112,10 @@ export const authRouter = router({
     .mutation(async ({ input, ctx }) => {
       const ip = getClientIp(ctx as any);
       const key = `${ip}:${input.email.toLowerCase()}`;
+      const userAgent =
+        typeof ctx.req.headers["user-agent"] === "string"
+          ? ctx.req.headers["user-agent"]
+          : "unknown";
 
       const row = db
         .prepare("SELECT id,email,password,role FROM users WHERE email=?")
@@ -135,7 +140,6 @@ export const authRouter = router({
 
       const twofa = getTwoFactor(row.id);
       if (twofa && twofa.enabled) {
-        // 2FA enabled: require code
         if (!input.twoFactorCode) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -153,8 +157,12 @@ export const authRouter = router({
 
       clearAttempts(loginFailures, key);
 
+      // Create session cookie
       const token = createSession(row.id, row.email, row.role);
       ctx.res.cookie("session", token, { httpOnly: true, sameSite: "lax" });
+
+      // Record login event (IP + userAgent + suspicion flag)
+      recordLoginEvent(row.id, ip, userAgent);
 
       return { user: { id: row.id, email: row.email, role: row.role } };
     }),
@@ -259,4 +267,13 @@ export const authRouter = router({
       disableTwoFactor(ctx.user.id);
       return { success: true };
     }),
+
+  // === LOGIN HISTORY: recent devices / IPs ===
+  loginHistory: authedProcedure.query(({ ctx }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+    const events = getRecentLogins(ctx.user.id, 20);
+    return events;
+  }),
 });
