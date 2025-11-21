@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
-import { trpc } from "@/lib/trpc";
 import { UserNav } from "@/components/UserNav";
 import {
   Card,
@@ -11,6 +10,14 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import {
   Table,
   TableHeader,
@@ -19,41 +26,59 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import {
-  Loader2,
-  ListTree,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  ArrowRightLeft,
-  Search as SearchIcon,
-} from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Loader2, Filter } from "lucide-react";
 
-type UnifiedTransaction = {
+type TxType = "deposit" | "withdrawal" | "trade" | "transfer";
+type TxStatus = "pending" | "completed" | "failed";
+
+type TransactionRow = {
   id: string;
-  type: "deposit" | "withdrawal" | "internal_sent" | "internal_received";
+  createdAt: string;
+  type: TxType;
   asset: string;
   amount: number;
-  direction: "in" | "out";
-  status?: string;
-  createdAt: string;
-  description: string;
+  status: TxStatus;
+  reference: string;
 };
 
-const TYPE_FILTERS = [
-  { value: "all", label: "All types" },
-  { value: "deposit", label: "Deposits" },
-  { value: "withdrawal", label: "Withdrawals" },
-  { value: "internal_sent", label: "Internal sent" },
-  { value: "internal_received", label: "Internal received" },
-];
-
-const DIR_FILTERS = [
-  { value: "all", label: "All directions" },
-  { value: "in", label: "In" },
-  { value: "out", label: "Out" },
+const MOCK_TRANSACTIONS: TransactionRow[] = [
+  {
+    id: "tx_001",
+    createdAt: new Date().toISOString(),
+    type: "deposit",
+    asset: "USDT",
+    amount: 250,
+    status: "completed",
+    reference: "MoonPay #982133",
+  },
+  {
+    id: "tx_002",
+    createdAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+    type: "withdrawal",
+    asset: "BTC",
+    amount: 0.005,
+    status: "pending",
+    reference: "To 1A1zP1... via cold wallet",
+  },
+  {
+    id: "tx_003",
+    createdAt: new Date(Date.now() - 86400 * 1000).toISOString(),
+    type: "trade",
+    asset: "ETH",
+    amount: 1.23,
+    status: "completed",
+    reference: "BUY ETH/USDT @ 3,100",
+  },
+  {
+    id: "tx_004",
+    createdAt: new Date(Date.now() - 2 * 86400 * 1000).toISOString(),
+    type: "transfer",
+    asset: "USDT",
+    amount: 50,
+    status: "completed",
+    reference: "Internal transfer to demo@bitchange.money",
+  },
 ];
 
 export default function Transactions() {
@@ -62,18 +87,15 @@ export default function Transactions() {
     redirectPath: getLoginUrl(),
   });
 
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [dirFilter, setDirFilter] = useState("all");
-  const [search, setSearch] = useState("");
-
-  const txQuery = trpc.transactions.historyForUser.useQuery(
-    { limit: 200 } as any,
-    { enabled: isAuthenticated && !loading }
-  );
+  const [typeFilter, setTypeFilter] = useState<"all" | TxType>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | TxStatus>("all");
+  const [assetFilter, setAssetFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col bg-background">
         <UserNav />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -87,12 +109,9 @@ export default function Transactions() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md w-full">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ListTree className="h-5 w-5" />
-              Transaction history
-            </CardTitle>
+            <CardTitle>Transaction history</CardTitle>
             <CardDescription>
-              You must be logged in to view your transaction history.
+              You must be logged in to view your transactions.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -105,65 +124,28 @@ export default function Transactions() {
     );
   }
 
-  let rows = (txQuery.data ?? []) as UnifiedTransaction[];
-
-  // Filters
-  rows = rows.filter((tx) => {
+  const filtered = MOCK_TRANSACTIONS.filter((tx) => {
     if (typeFilter !== "all" && tx.type !== typeFilter) return false;
-    if (dirFilter !== "all" && tx.direction !== dirFilter) return false;
-    if (search.trim()) {
-      const term = search.trim().toLowerCase();
-      const combined =
-        (tx.asset || "") +
-        " " +
-        (tx.description || "") +
-        " " +
-        (tx.status || "") +
-        " " +
-        tx.id;
-      if (!combined.toLowerCase().includes(term)) return false;
+    if (statusFilter !== "all" && tx.status !== statusFilter) return false;
+    if (assetFilter && !tx.asset.toUpperCase().includes(assetFilter.toUpperCase())) {
+      return false;
     }
+
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      const txDate = new Date(tx.createdAt);
+      if (txDate < fromDate) return false;
+    }
+
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      const txDate = new Date(tx.createdAt);
+      // include transactions on that day
+      if (txDate > new Date(toDate.getTime() + 24 * 60 * 60 * 1000)) return false;
+    }
+
     return true;
   });
-
-  const typeLabel = (tx: UnifiedTransaction) => {
-    switch (tx.type) {
-      case "deposit":
-        return "Deposit";
-      case "withdrawal":
-        return "Withdrawal";
-      case "internal_sent":
-        return "Internal (sent)";
-      case "internal_received":
-        return "Internal (received)";
-      default:
-        return tx.type;
-    }
-  };
-
-  const typeIcon = (tx: UnifiedTransaction) => {
-    if (tx.type === "deposit" || tx.direction === "in") {
-      return <ArrowDownToLine className="h-3 w-3 mr-1" />;
-    }
-    if (tx.type === "withdrawal" || tx.direction === "out") {
-      return <ArrowUpFromLine className="h-3 w-3 mr-1" />;
-    }
-    return <ArrowRightLeft className="h-3 w-3 mr-1" />;
-  };
-
-  const statusClass = (status?: string) => {
-    const s = (status || "").toLowerCase();
-    if (s === "completed" || s === "approved") {
-      return "border-emerald-500 text-emerald-400";
-    }
-    if (s === "pending") {
-      return "border-amber-500 text-amber-300";
-    }
-    if (s === "rejected" || s === "failed") {
-      return "border-red-500 text-red-400";
-    }
-    return "border-border text-muted-foreground";
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -171,66 +153,92 @@ export default function Transactions() {
       <main className="container mx-auto px-4 py-8 max-w-6xl space-y-6">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
-              <ListTree className="h-7 w-7" />
-              Transaction history
-            </h1>
+            <h1 className="text-3xl font-bold mb-1">Transaction history</h1>
             <p className="text-muted-foreground">
-              A consolidated view of your deposits, withdrawals, and internal transfers.
+              View your deposits, withdrawals, internal transfers and trades in one place.
             </p>
           </div>
         </header>
 
-        {/* Filters */}
         <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>
-              Filter by type, direction, or search by asset / description.
-            </CardDescription>
+          <CardHeader className="pb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                Filters
+              </CardTitle>
+              <CardDescription>
+                Filter by asset, type, status, or date range.
+              </CardDescription>
+            </div>
+            <p className="text-[11px] text-muted-foreground max-w-md">
+              <strong>Note:</strong> This page is wired with placeholder data for now. 
+              Backend integration with real transaction logs will be added next.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-[160px_160px_minmax(0,1.4fr)]">
+            <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-2">
                 <Label htmlFor="type">Type</Label>
-                <select
-                  id="type"
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                <Select
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
+                  onValueChange={(v) => setTypeFilter(v as any)}
                 >
-                  {TYPE_FILTERS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="type">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="deposit">Deposit</SelectItem>
+                    <SelectItem value="withdrawal">Withdrawal</SelectItem>
+                    <SelectItem value="trade">Trade</SelectItem>
+                    <SelectItem value="transfer">Internal transfer</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="direction">Direction</Label>
-                <select
-                  id="direction"
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  value={dirFilter}
-                  onChange={(e) => setDirFilter(e.target.value)}
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => setStatusFilter(v as any)}
                 >
-                  {DIR_FILTERS.map((d) => (
-                    <option key={d.value} value={d.value}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="search">Search</Label>
-                <div className="relative">
-                  <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="asset">Asset</Label>
+                <Input
+                  id="asset"
+                  placeholder="USDT, BTC, ETH..."
+                  value={assetFilter}
+                  onChange={(e) => setAssetFilter(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Date range</Label>
+                <div className="flex gap-2">
                   <Input
-                    id="search"
-                    className="pl-8"
-                    placeholder="Search by asset, status, description..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="text-xs"
+                  />
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="text-xs"
                   />
                 </div>
               </div>
@@ -238,22 +246,17 @@ export default function Transactions() {
           </CardContent>
         </Card>
 
-        {/* Table */}
         <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle>All transactions</CardTitle>
+            <CardTitle>Transactions</CardTitle>
             <CardDescription>
-              Showing {rows.length} record(s). Most recent first.
+              A unified view of your on-platform activity.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {txQuery.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : rows.length === 0 ? (
+            {filtered.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No transactions found yet.
+                No transactions match the current filters.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -263,50 +266,33 @@ export default function Transactions() {
                       <TableHead>Date</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Asset</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead>Reference</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((tx) => {
-                      const dateStr = tx.createdAt
-                        ? new Date(tx.createdAt).toLocaleString()
-                        : "-";
+                    {filtered.map((tx) => {
+                      const dateStr = new Date(tx.createdAt).toLocaleString();
                       return (
                         <TableRow key={tx.id}>
                           <TableCell className="text-xs md:text-sm">
                             {dateStr}
                           </TableCell>
-                          <TableCell className="text-xs md:text-sm">
-                            <span className="inline-flex items-center gap-1">
-                              {typeIcon(tx)}
-                              {typeLabel(tx)}
-                            </span>
+                          <TableCell className="text-xs md:text-sm capitalize">
+                            {tx.type}
                           </TableCell>
                           <TableCell className="text-xs md:text-sm">
                             {tx.asset}
                           </TableCell>
-                          <TableCell className="text-xs md:text-sm">
-                            {tx.direction === "out" ? "-" : "+"}
+                          <TableCell className="text-xs md:text-sm text-right">
                             {tx.amount}
                           </TableCell>
-                          <TableCell className="text-xs md:text-xs">
-                            {tx.status ? (
-                              <Badge
-                                variant="outline"
-                                className={statusClass(tx.status)}
-                              >
-                                {tx.status}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">
-                                —
-                              </span>
-                            )}
+                          <TableCell className="text-xs md:text-sm capitalize">
+                            {tx.status}
                           </TableCell>
-                          <TableCell className="text-xs md:text-xs">
-                            {tx.description}
+                          <TableCell className="text-[11px] md:text-xs max-w-xs truncate">
+                            {tx.reference}
                           </TableCell>
                         </TableRow>
                       );
