@@ -177,3 +177,152 @@ BitChange Security Team`;
     html,
   });
 }
+
+
+export async function sendWithdrawalRequestEmail(params: {
+  to: string;
+  asset: string;
+  amount: number;
+  address: string;
+}) {
+  const subject = "Withdrawal request received";
+  const text = `Hello,
+
+We have received your withdrawal request:
+
+Asset: ${params.asset}
+Amount: ${params.amount}
+Destination address: ${params.address}
+
+We will process this request according to our standard verification and security checks.
+
+If you did not initiate this withdrawal, please contact support immediately.
+
+BitChange Security Team`;
+
+  const html = `
+    <h2>Withdrawal request received</h2>
+    <p>We have received a new withdrawal request from your <strong>BitChange</strong> account:</p>
+    <ul>
+      <li><strong>Asset:</strong> ${escapeHtml(params.asset)}</li>
+      <li><strong>Amount:</strong> ${escapeHtml(String(params.amount))}</li>
+      <li><strong>Destination address:</strong> ${escapeHtml(params.address)}</li>
+    </ul>
+    <p>We will process this request according to our standard verification and security checks.</p>
+    <p>If you did not initiate this withdrawal, please change your password immediately and contact support.</p>
+    <p>Best regards,<br/>BitChange Security Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+}
+
+export async function sendWithdrawalStatusEmail(params: {
+  to: string;
+  asset: string;
+  amount: number;
+  status: "approved" | "rejected" | "pending";
+  txId?: string | null;
+  reason?: string | null;
+}) {
+  const subject = `Withdrawal ${params.status}`;
+  const baseText = `Hello,
+
+Your withdrawal request has been ${params.status}.
+
+Asset: ${params.asset}
+Amount: ${params.amount}
+${params.txId ? `Transaction ID: ${params.txId}` : ""}
+${params.reason ? `Reason: ${params.reason}` : ""}
+
+If you do not recognize this action, please contact support immediately.
+
+BitChange Security Team`;
+
+  const html = `
+    <h2>Withdrawal ${escapeHtml(params.status)}</h2>
+    <p>Your withdrawal request has been <strong>${escapeHtml(
+      params.status
+    )}</strong>.</p>
+    <ul>
+      <li><strong>Asset:</strong> ${escapeHtml(params.asset)}</li>
+      <li><strong>Amount:</strong> ${escapeHtml(String(params.amount))}</li>
+      ${
+        params.txId
+          ? `<li><strong>Transaction ID:</strong> ${escapeHtml(params.txId)}</li>`
+          : ""
+      }
+      ${
+        params.reason
+          ? `<li><strong>Reason:</strong> ${escapeHtml(params.reason)}</li>`
+          : ""
+      }
+    </ul>
+    <p>If you do not recognize this action, please contact support immediately.</p>
+    <p>Best regards,<br/>BitChange Security Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text: baseText,
+    html,
+  });
+}
+
+export async function sendKycStatusEmail(params: {
+  to: string;
+  status: "approved" | "rejected";
+  reason?: string | null;
+}) {
+  const subject =
+    params.status === "approved" ? "KYC approved" : "KYC review completed";
+
+  const textApproved = `Hello,
+
+Your KYC verification has been approved.
+
+You can now access all features that require verified status.
+
+BitChange Compliance Team`;
+
+  const textRejected = `Hello,
+
+Your KYC verification has been reviewed and was not approved.
+
+Reason: ${params.reason || "no specific reason provided"}
+
+You may update your documents and try again, or contact support for more information.
+
+BitChange Compliance Team`;
+
+  const htmlApproved = `
+    <h2>KYC approved ✅</h2>
+    <p>Your KYC verification has been approved.</p>
+    <p>You can now access all features that require verified status.</p>
+    <p>Best regards,<br/>BitChange Compliance Team</p>
+  `;
+
+  const htmlRejected = `
+    <h2>KYC review completed</h2>
+    <p>Your KYC verification has been reviewed and was <strong>not approved</strong>.</p>
+    <p><strong>Reason:</strong> ${escapeHtml(
+      params.reason || "no specific reason provided"
+    )}</p>
+    <p>You may update your documents and try again, or contact support for more information.</p>
+    <p>Best regards,<br/>BitChange Compliance Team</p>
+  `;
+
+  const isApproved = params.status === "approved";
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text: isApproved ? textApproved : textRejected,
+    html: isApproved ? htmlApproved : htmlRejected,
+  });
+}
