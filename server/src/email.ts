@@ -1,55 +1,137 @@
-import { db } from "./db";
 import nodemailer from "nodemailer";
 
-/**
- * Insert email into DB outbox table.
- */
-export function queueEmail(toEmail: string, subject: string, body: string) {
-  const now = new Date().toISOString();
-  db.prepare("INSERT INTO emailOutbox (toEmail,subject,body,createdAt) VALUES (?,?,?,?)")
-    .run(toEmail, subject, body, now);
+export type SendEmailOptions = {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+};
+
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT
+  ? parseInt(process.env.SMTP_PORT, 10)
+  : 587;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const SMTP_FROM = process.env.SMTP_FROM || "no-reply@bitchange.money";
+const SMTP_SECURE =
+  process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465";
+
+const EMAIL_ENABLED =
+  !!SMTP_HOST && !!SMTP_USER && !!SMTP_PASS && !!SMTP_FROM;
+
+let transporter: nodemailer.Transporter | null = null;
+
+if (EMAIL_ENABLED) {
+  transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  });
+
+  transporter
+    .verify()
+    .then(() => {
+      console.log("[email] SMTP connection verified");
+    })
+    .catch((err) => {
+      console.error("[email] SMTP verification failed:", err);
+    });
+} else {
+  console.log(
+    "[email] SMTP not configured. Emails are disabled. Set SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_FROM to enable."
+  );
 }
 
-/**
- * Try to send email immediately using SMTP settings in environment.
- * Always queues the email in emailOutbox as well.
- */
-export async function sendEmail(toEmail: string, subject: string, body: string) {
-  // persist in DB first
-  queueEmail(toEmail, subject, body);
-
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || user;
-
-  if (!host || !user || !pass || !from) {
-    console.log("[email] SMTP not configured, queued only:", { toEmail, subject });
-    return;
+export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
+  if (!EMAIL_ENABLED || !transporter) {
+    console.log(
+      "[email] Skipping sendEmail because SMTP is not configured.",
+      { to: opts.to, subject: opts.subject }
+    );
+    return false;
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
-
     await transporter.sendMail({
-      from,
-      to: toEmail,
-      subject,
-      text: body,
+      from: SMTP_FROM,
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html,
     });
-
-    const now = new Date().toISOString();
-    db.prepare("UPDATE emailOutbox SET sentAt=? WHERE toEmail=? AND subject=? AND body=? AND sentAt IS NULL")
-      .run(now, toEmail, subject, body);
-
-    console.log("[email] Sent:", { toEmail, subject });
+    return true;
   } catch (err) {
-    console.error("[email] Error sending email:", err);
+    console.error("[email] Failed to send email:", err, {
+      to: opts.to,
+      subject: opts.subject,
+    });
+    return false;
   }
+}
+
+// ---- Helpers for specific events ----
+
+export async function sendWelcomeEmail(to: string) {
+  const subject = "Welcome to BitChange Exchange";
+  const text = `Welcome to BitChange!
+
+Your account has been created successfully.
+
+If this signup was not made by you, please contact support immediately.
+
+BitChange Team`;
+
+  const html = `
+    <h2>Welcome to <strong>BitChange</strong> 👋</h2>
+    <p>Your account has been created successfully.</p>
+    <p>If this signup was not made by you, please contact support immediately.</p>
+    <p>Best regards,<br/>BitChange Team</p>
+  `;
+
+  return sendEmail({ to, subject, text, html });
+}
+
+export async function sendSupportReplyEmail(params: {
+  to: string;
+  ticketId: number;
+  subject: string;
+  replySnippet: string;
+}) {
+  const subject = `New reply on your support ticket #${params.ticketId}`;
+  const text = `Hello,
+
+Our support team has replied to your ticket #${params.ticketId}:
+
+"${params.replySnippet}"
+
+Please log in to your BitChange account to view the full conversation.
+
+BitChange Support Team`;
+
+  const html = `
+    <h2>New reply from <strong>BitChange Support</strong></h2>
+    <p>Your ticket <strong>#${params.ticketId}</strong> has a new reply:</p>
+    <blockquote>${escapeHtml(params.replySnippet)}</blockquote>
+    <p>Please log in to your BitChange account to view the full conversation.</p>
+    <p>Best regards,<br/>BitChange Support Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

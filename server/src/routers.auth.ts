@@ -20,6 +20,7 @@ import {
   reviewKycForUser,
 } from "./kyc";
 import {
+import { sendWelcomeEmail } from "./email";
   logInfo,
   logWarn,
   logError,

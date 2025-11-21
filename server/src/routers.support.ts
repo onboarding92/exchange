@@ -8,6 +8,7 @@ import {
   getTicketWithMessages,
 } from "./support";
 import { logSecurity, logWarn } from "./logger";
+import { sendSupportReplyEmail } from "./email";
 
 const subjectSchema = z.string().min(5).max(200);
 const messageSchema = z.string().min(5).max(5000);
@@ -224,7 +225,31 @@ export const supportRouter = router({
         newStatus,
       });
 
-      return { success: true };
+      
+      // Try to email the user (if SMTP configured)
+      try {
+        const userRow = db
+          .prepare("SELECT email FROM users WHERE id = ?")
+          .get(ticket.userId) as { email?: string } | undefined;
+
+        if (userRow?.email) {
+          const snippet =
+            input.message.length > 200
+              ? input.message.slice(0, 200) + "..."
+              : input.message;
+
+          void sendSupportReplyEmail({
+            to: userRow.email,
+            ticketId: ticket.id,
+            subject: ticket.id.toString(),
+            replySnippet: snippet,
+          });
+        }
+      } catch (err) {
+        console.error("[email] Failed to schedule support reply email:", err);
+      }
+
+return { success: true };
     }),
 
   // Admin: update ticket status without message
