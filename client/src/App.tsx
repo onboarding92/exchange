@@ -14,6 +14,7 @@ import Security from "./pages/Security";
 import LoginHistory from "./pages/LoginHistory";
 import Kyc from "./pages/Kyc";
 import Prices from "./pages/Prices";
+import Staking from "./pages/Staking";
 import DepositGateway from "./pages/DepositGateway";
 import InternalTransfer from "./pages/InternalTransfer";
 import AdminLogin from "./pages/AdminLogin";
@@ -32,6 +33,7 @@ function Router() {
       <Route path={"/withdraw"} component={Withdraw} />
       <Route path={"/transfer"} component={InternalTransfer} />
       <Route path={"/trading"} component={Trading} />
+      <Route path={"/staking"} component={Staking} />
       <Route path={"/profile"} component={Profile} />
       <Route path={"/security"} component={Security} />
       <Route path={"/login-history"} component={LoginHistory} />

@@ -1,84 +1,250 @@
-import { router, authedProcedure, adminProcedure } from "./trpc";
+import { router, authedProcedure, publicProcedure } from "./trpc";
 import { z } from "zod";
 import { db } from "./db";
-import { sendEmail } from "./email";
+import { TRPCError } from "@trpc/server";
+import { listActivePlans, listUserStakes, calcRewards, StakingPlan } from "./staking";
+import { logSecurity, logWarn } from "./logger";
+
+const assetSchema = z
+  .string()
+  .min(2)
+  .max(20)
+  .regex(/^[A-Z0-9]+$/, "Asset must be uppercase (e.g. USDT, BTC)");
 
 export const stakingRouter = router({
-  listPlans: authedProcedure.query(() => {
-    return db.prepare("SELECT * FROM stakingPlans WHERE active=1").all();
+  // Public list of active staking plans
+  listPlans: publicProcedure.query(() => {
+    const plans = listActivePlans();
+    return plans;
   }),
+
+  // List stakes for the current user
   myStakes: authedProcedure.query(({ ctx }) => {
-    return db.prepare(`
-      SELECT s.*, p.asset, p.apr, p.lockDays
-      FROM userStakes s
-      JOIN stakingPlans p ON p.id = s.planId
-      WHERE s.userId=?
-      ORDER BY s.startedAt DESC
-    `).all(ctx.user!.id);
+    const user = ctx.user!;
+    const stakes = listUserStakes(user.id);
+    return stakes;
   }),
-  stake: authedProcedure
-    .input(z.object({ planId: z.number().int(), amount: z.number().positive() }))
+
+  // Create a new stake
+  createStake: authedProcedure
+    .input(
+      z.object({
+        planId: z.number().int().positive(),
+        amount: z.number().positive().max(1_000_000_000),
+      })
+    )
     .mutation(({ ctx, input }) => {
-      const plan = db.prepare("SELECT * FROM stakingPlans WHERE id=? AND active=1").get(input.planId) as any;
-      if (!plan) throw new Error("Invalid plan");
-      if (input.amount < plan.minAmount) throw new Error("Amount below minimum");
-      const balRow = db.prepare("SELECT balance FROM wallets WHERE userId=? AND asset=?")
-        .get(ctx.user!.id, plan.asset) as any;
-      const bal = balRow?.balance ?? 0;
-      if (bal < input.amount) throw new Error("Insufficient balance");
-      db.prepare("UPDATE wallets SET balance=balance-? WHERE userId=? AND asset=?")
-        .run(input.amount, ctx.user!.id, plan.asset);
-      const now = new Date();
-      const ends = new Date(now.getTime() + plan.lockDays * 24 * 3600 * 1000);
-      db.prepare(`
-        INSERT INTO userStakes (userId,planId,amount,startedAt,endsAt)
-        VALUES (?,?,?,?,?)
-      `).run(ctx.user!.id, input.planId, input.amount, now.toISOString(), ends.toISOString());
-      if (ctx.user?.email) {
-        void sendEmail(ctx.user.email, "Staking started", `You staked ${input.amount} ${plan.asset} for ${plan.lockDays} days.`);
+      const user = ctx.user!;
+      const userId = user.id;
+
+      const plan = db
+        .prepare(
+          "SELECT id, name, asset, apr, lockDays, minAmount, maxAmount, isActive FROM stakingPlans WHERE id = ?"
+        )
+        .get(input.planId) as StakingPlan | undefined;
+
+      if (!plan || !plan.isActive) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Staking plan not found or inactive.",
+        });
       }
+
+      if (input.amount < plan.minAmount) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Minimum amount for this plan is ${plan.minAmount}.`,
+        });
+      }
+
+      if (plan.maxAmount && input.amount > plan.maxAmount) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Maximum amount for this plan is ${plan.maxAmount}.`,
+        });
+      }
+
+      // Check wallet balance
+      const wallet = db
+        .prepare(
+          "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
+        )
+        .get(userId, plan.asset) as { balance: number } | undefined;
+
+      if (!wallet || wallet.balance < input.amount) {
+        logWarn("Staking failed: insufficient balance", {
+          userId,
+          asset: plan.asset,
+          requestedAmount: input.amount,
+          balance: wallet?.balance ?? 0,
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Insufficient balance for staking.",
+        });
+      }
+
+      const now = new Date();
+      const startAt = now.toISOString();
+      const unlockAt = new Date(
+        now.getTime() + plan.lockDays * 24 * 60 * 60 * 1000
+      ).toISOString();
+
+      const tx = (db as any).transaction(
+        (
+          userId: number,
+          asset: string,
+          amount: number,
+          planId: number,
+          apr: number,
+          lockDays: number,
+          startAt: string,
+          unlockAt: string
+        ) => {
+          // Subtract funds from wallet
+          db.prepare(
+            "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
+          ).run(amount, userId, asset);
+
+          // Insert stake
+          db.prepare(
+            `INSERT INTO userStakes
+              (userId, planId, asset, amount, apr, lockDays, startAt, unlockAt, claimedRewards, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')`
+          ).run(
+            userId,
+            planId,
+            asset,
+            amount,
+            apr,
+            lockDays,
+            startAt,
+            unlockAt
+          );
+        }
+      );
+
+      tx(
+        userId,
+        plan.asset,
+        input.amount,
+        plan.id,
+        plan.apr,
+        plan.lockDays,
+        startAt,
+        unlockAt
+      );
+
+      logSecurity("Created staking position", {
+        userId,
+        planId: plan.id,
+        asset: plan.asset,
+        amount: input.amount,
+      });
+
       return { success: true };
     }),
-  claim: authedProcedure
-    .input(z.object({ stakeId: z.number().int() }))
+
+  // Claim a stake (principal + rewards) after lock ends
+  claimStake: authedProcedure
+    .input(
+      z.object({
+        stakeId: z.number().int().positive(),
+      })
+    )
     .mutation(({ ctx, input }) => {
-      const stake = db.prepare(`
-        SELECT s.*, p.asset, p.apr
-        FROM userStakes s
-        JOIN stakingPlans p ON p.id = s.planId
-        WHERE s.id=? AND s.userId=?
-      `).get(input.stakeId, ctx.user!.id) as any;
-      if (!stake) throw new Error("Stake not found");
-      if (stake.closedAt) throw new Error("Already claimed");
-      const now = new Date();
-      const end = new Date(stake.endsAt);
-      if (now < end) throw new Error("Stake still locked");
-      const days = (end.getTime() - new Date(stake.startedAt).getTime()) / (24 * 3600 * 1000);
-      const reward = stake.amount * (stake.apr / 100) * (days / 365);
-      db.prepare("UPDATE userStakes SET closedAt=?, reward=? WHERE id=?")
-        .run(now.toISOString(), reward, stake.id);
-      db.prepare("INSERT OR IGNORE INTO wallets (userId,asset,balance) VALUES (?,?,0)")
-        .run(ctx.user!.id, stake.asset, 0);
-      db.prepare("UPDATE wallets SET balance=balance+? WHERE userId=? AND asset=?")
-        .run(stake.amount + reward, ctx.user!.id, stake.asset);
-      if (ctx.user?.email) {
-        void sendEmail(ctx.user.email, "Staking rewards claimed", `You claimed ${reward.toFixed(8)} ${stake.asset} in rewards.`);
+      const user = ctx.user!;
+      const userId = user.id;
+
+      const stake = db
+        .prepare(
+          `SELECT id, userId, planId, asset, amount, apr, lockDays,
+                  startAt, unlockAt, claimedRewards, status
+           FROM userStakes
+           WHERE id = ?`
+        )
+        .get(input.stakeId) as any;
+
+      if (!stake || stake.userId !== userId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Stake not found.",
+        });
       }
-      return { success: true, reward };
+
+      if (stake.status !== "active") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This stake is not active.",
+        });
+      }
+
+      const now = new Date();
+      const unlockAt = new Date(stake.unlockAt);
+      if (now.getTime() < unlockAt.getTime()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Stake is still locked.",
+        });
+      }
+
+      const totalReward = calcRewards(
+        {
+          amount: stake.amount,
+          apr: stake.apr,
+          startAt: stake.startAt,
+          unlockAt: stake.unlockAt,
+        },
+        now
+      );
+
+      const rewardToCredit = Math.max(0, totalReward - stake.claimedRewards);
+      const principal = stake.amount;
+
+      const tx = (db as any).transaction(
+        (
+          userId: number,
+          asset: string,
+          principal: number,
+          reward: number,
+          stakeId: number
+        ) => {
+          // Credit wallet with principal + reward
+          const existing = db
+            .prepare(
+              "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
+            )
+            .get(userId, asset) as { balance: number } | undefined;
+
+          if (existing) {
+            db.prepare(
+              "UPDATE wallets SET balance = balance + ? WHERE userId = ? AND asset = ?"
+            ).run(principal + reward, userId, asset);
+          } else {
+            db.prepare(
+              "INSERT INTO wallets (userId, asset, balance) VALUES (?, ?, ?)"
+            ).run(userId, asset, principal + reward);
+          }
+
+          db.prepare(
+            "UPDATE userStakes SET status = 'claimed', claimedRewards = claimedRewards + ? WHERE id = ?"
+          ).run(reward, stakeId);
+        }
+      );
+
+      tx(userId, stake.asset, principal, rewardToCredit, stake.id);
+
+      logSecurity("Stake claimed", {
+        userId,
+        stakeId: stake.id,
+        principal,
+        rewardToCredit,
+      });
+
+      return {
+        success: true,
+        principal,
+        reward: rewardToCredit,
+      };
     }),
-  adminCreatePlan: adminProcedure
-    .input(z.object({
-      asset: z.string(),
-      apr: z.number().positive(),
-      lockDays: z.number().int().positive(),
-      minAmount: z.number().positive(),
-    }))
-    .mutation(({ input }) => {
-      db.prepare("INSERT INTO stakingPlans (asset,apr,lockDays,minAmount,active) VALUES (?,?,?,?,1)")
-        .run(input.asset, input.apr, input.lockDays, input.minAmount);
-      return { success: true };
-    }),
-  adminListPlans: adminProcedure.query(() => {
-    return db.prepare("SELECT * FROM stakingPlans").all();
-  }),
 });
