@@ -1,91 +1,123 @@
-import { useState } from "react";
-import { UserNav } from "@/components/UserNav";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Shield, QrCode, Lock, Unlock, Loader2, AlertCircle } from "lucide-react";
+import { useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { toast } from "sonner";
+import { UserNav } from "@/components/UserNav";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableRow,
+  TableBody,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  Shield,
+  Lock,
+  MonitorSmartphone,
+  AlertTriangle,
+  Loader2,
+  CheckCircle2,
+} from "lucide-react";
+
+type LoginHistoryRow = {
+  id: number;
+  userId: number | null;
+  email: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  method: string | null;
+  success: number;
+  createdAt: string;
+  metadataJson: string | null;
+};
+
+function parseDevice(userAgent: string | null): string {
+  if (!userAgent) return "Unknown device";
+
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("iphone")) return "iPhone";
+  if (ua.includes("ipad")) return "iPad";
+  if (ua.includes("android")) return "Android device";
+  if (ua.includes("mac os")) return "Mac";
+  if (ua.includes("windows")) return "Windows";
+  if (ua.includes("linux")) return "Linux";
+
+  return "Unknown device";
+}
+
+function parseBrowser(userAgent: string | null): string {
+  if (!userAgent) return "Unknown browser";
+
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("chrome") && !ua.includes("edge") && !ua.includes("opr"))
+    return "Chrome";
+  if (ua.includes("safari") && !ua.includes("chrome")) return "Safari";
+  if (ua.includes("firefox")) return "Firefox";
+  if (ua.includes("edg")) return "Edge";
+  if (ua.includes("opr") || ua.includes("opera")) return "Opera";
+
+  return "Unknown browser";
+}
+
+type DeviceGroup = {
+  key: string;
+  ip: string | null;
+  userAgent: string | null;
+  device: string;
+  browser: string;
+  lastSeenAt: string;
+  lastSuccess: boolean;
+  totalLogins: number;
+  failedLogins: number;
+};
 
 export default function Security() {
-  const { isAuthenticated, loading: authLoading } = useAuth({
+  const { isAuthenticated, loading } = useAuth({
     redirectOnUnauthenticated: false,
     redirectPath: getLoginUrl(),
   });
 
-  const [setupSecret, setSetupSecret] = useState<string | null>(null);
-  const [setupUrl, setSetupUrl] = useState<string | null>(null);
-  const [setupCode, setSetupCode] = useState("");
-  const [disableCode, setDisableCode] = useState("");
+  const historyQuery = trpc.loginHistory.historyForUser.useQuery(
+    { limit: 100 } as any,
+    { enabled: isAuthenticated && !loading }
+  );
 
-  const init2FA = trpc.auth.init2FASetup.useMutation({
-    onSuccess: (data) => {
-      setSetupSecret(data.secret);
-      setSetupUrl(data.otpauthUrl);
-      toast.success("2FA setup started. Scan the QR code with your authenticator app.");
-    },
-    onError: (err) => {
-      if (err.message.includes("already enabled")) {
-        toast.info("Two-factor authentication is already enabled on this account.");
-      } else {
-        toast.error(err.message || "Failed to start 2FA setup.");
-      }
-    },
-  });
-
-  const confirm2FA = trpc.auth.confirm2FASetup.useMutation({
-    onSuccess: () => {
-      toast.success("Two-factor authentication enabled successfully.");
-      setSetupCode("");
-      setSetupSecret(null);
-      setSetupUrl(null);
-    },
-    onError: (err) => {
-      toast.error(err.message || "Invalid 2FA code. Please try again.");
-    },
-  });
-
-  const disable2FA = trpc.auth.disable2FA.useMutation({
-    onSuccess: () => {
-      toast.success("Two-factor authentication has been disabled.");
-      setDisableCode("");
-    },
-    onError: (err) => {
-      if (err.message.includes("not enabled")) {
-        toast.info("Two-factor authentication is not enabled on this account.");
-      } else {
-        toast.error(err.message || "Failed to disable 2FA.");
-      }
-    },
-  });
-
-  if (authLoading || !isAuthenticated) {
-    if (authLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center">
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <UserNav />
+        <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
+  if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5" />
-              Security Settings
+              Account security
             </CardTitle>
             <CardDescription>
-              You need to be logged in to manage two-factor authentication.
+              You must be logged in to manage your security settings.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <Button asChild className="w-full">
-              <a href={getLoginUrl()}>Login to your account</a>
+              <a href={getLoginUrl()}>Go to login</a>
             </Button>
           </CardContent>
         </Card>
@@ -93,179 +125,250 @@ export default function Security() {
     );
   }
 
-  const qrUrl = setupUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-        setupUrl
-      )}`
+  const rows = (historyQuery.data ?? []) as LoginHistoryRow[];
+
+  const devices: DeviceGroup[] = useMemo(() => {
+    if (!rows.length) return [];
+
+    const map = new Map<string, DeviceGroup>();
+
+    for (const r of rows) {
+      const device = parseDevice(r.userAgent);
+      const browser = parseBrowser(r.userAgent);
+      const ip = r.ip ?? "Unknown IP";
+      const key = `${ip}__${device}__${browser}`;
+
+      const createdAtTime = r.createdAt ? new Date(r.createdAt) : null;
+      const createdAtIso = createdAtTime?.toISOString() ?? r.createdAt ?? "";
+
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          ip: r.ip ?? null,
+          userAgent: r.userAgent ?? null,
+          device,
+          browser,
+          lastSeenAt: createdAtIso,
+          lastSuccess: r.success === 1,
+          totalLogins: 1,
+          failedLogins: r.success === 1 ? 0 : 1,
+        });
+      } else {
+        // update stats
+        existing.totalLogins += 1;
+        if (r.success !== 1) {
+          existing.failedLogins += 1;
+        }
+
+        if (createdAtTime) {
+          const existingTime = existing.lastSeenAt
+            ? new Date(existing.lastSeenAt)
+            : null;
+          if (!existingTime || createdAtTime > existingTime) {
+            existing.lastSeenAt = createdAtIso;
+            existing.lastSuccess = r.success === 1;
+          }
+        }
+      }
+    }
+
+    // sort by lastSeenAt desc
+    return Array.from(map.values()).sort((a, b) => {
+      const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+      const tb = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+      return tb - ta;
+    });
+  }, [rows]);
+
+  const lastLogin = rows.length
+    ? rows
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )[0]
     : null;
+
+  const lastLoginDate =
+    lastLogin?.createdAt && new Date(lastLogin.createdAt).toLocaleString();
+
+  const lastLoginIp = lastLogin?.ip ?? "Unknown";
+  const lastLoginDevice = parseDevice(lastLogin?.userAgent ?? null);
+  const lastLoginBrowser = parseBrowser(lastLogin?.userAgent ?? null);
+
+  const hasFailedLogins = rows.some((r) => r.success !== 1);
 
   return (
     <div className="min-h-screen bg-background">
       <UserNav />
+      <main className="container mx-auto px-4 py-8 max-w-6xl space-y-6">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
+              <Shield className="h-7 w-7" />
+              Account security
+            </h1>
+            <p className="text-muted-foreground">
+              Review your recent logins and devices. If you see anything
+              suspicious, change your password immediately and contact support.
+            </p>
+          </div>
+        </header>
 
-      <main className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Security</h1>
-          <p className="text-muted-foreground">
-            Manage two-factor authentication (2FA) for your account.
-          </p>
-        </div>
-
-        <div className="space-y-6">
+        {/* Security summary */}
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Shield className="h-5 w-5" />
-                    Two-Factor Authentication
-                  </CardTitle>
-                  <CardDescription>
-                    Add an extra layer of security for sign-in and withdrawals.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <p className="text-sm text-muted-foreground">
-                We recommend enabling 2FA using an authenticator app (Google Authenticator, Authy, etc.).
-                You&apos;ll need to enter a 6-digit code from your app each time you log in or confirm withdrawals.
-              </p>
-
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <QrCode className="h-5 w-5" />
-                    <h2 className="font-semibold">Step 1: Start setup</h2>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Click the button below to generate a unique secret and QR code. Scan it with your authenticator app.
-                  </p>
-                  <Button
-                    variant="default"
-                    onClick={() => init2FA.mutate()}
-                    disabled={init2FA.isPending}
-                  >
-                    {init2FA.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Start 2FA setup
-                  </Button>
-
-                  {setupSecret && (
-                    <div className="mt-4 space-y-3">
-                      {qrUrl && (
-                        <div className="flex flex-col items-center gap-2">
-                          <img
-                            src={qrUrl}
-                            alt="2FA QR Code"
-                            className="border rounded-md p-2 bg-background"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            Scan this QR with your authenticator app
-                          </span>
-                        </div>
-                      )}
-                      <div>
-                        <Label className="text-xs uppercase text-muted-foreground">
-                          Secret key (backup)
-                        </Label>
-                        <div className="mt-1 font-mono text-sm break-all bg-muted rounded-md px-2 py-1">
-                          {setupSecret}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Lock className="h-5 w-5" />
-                    <h2 className="font-semibold">Step 2: Confirm code</h2>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    After scanning, enter the 6-digit code from your authenticator app to confirm and enable 2FA.
-                  </p>
-                  <div className="space-y-2">
-                    <Label htmlFor="setup-code">Authenticator code</Label>
-                    <Input
-                      id="setup-code"
-                      placeholder="123456"
-                      maxLength={8}
-                      value={setupCode}
-                      onChange={(e) => setSetupCode(e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (!setupCode) {
-                        toast.error("Please enter the code from your authenticator app.");
-                        return;
-                      }
-                      confirm2FA.mutate({ token: setupCode });
-                    }}
-                    disabled={confirm2FA.isPending}
-                  >
-                    {confirm2FA.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    Confirm &amp; enable 2FA
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Unlock className="h-5 w-5" />
-                Disable 2FA
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Latest login
               </CardTitle>
-              <CardDescription>
-                If you lose access to your authenticator app, contact support rather than disabling 2FA.
+              <CardDescription className="text-xs">
+                Most recent access to your account
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                To disable 2FA, enter a valid code from your authenticator app and confirm.
-              </p>
-              <div className="space-y-2">
-                <Label htmlFor="disable-code">Authenticator code</Label>
-                <Input
-                  id="disable-code"
-                  placeholder="123456"
-                  maxLength={8}
-                  value={disableCode}
-                  onChange={(e) => setDisableCode(e.target.value)}
-                />
+            <CardContent className="space-y-2 text-xs">
+              <div>
+                <span className="font-medium">Time:</span>{" "}
+                {lastLoginDate || "No login events recorded yet"}
               </div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (!disableCode) {
-                    toast.error("Please enter a 2FA code to disable two-factor authentication.");
-                    return;
-                  }
-                  disable2FA.mutate({ token: disableCode });
-                }}
-                disabled={disable2FA.isPending}
-              >
-                {disable2FA.isPending && (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                )}
-                Disable 2FA
-              </Button>
-
-              <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                <AlertCircle className="h-4 w-4 mt-0.5" />
-                <p>
-                  For maximum security, keep 2FA enabled. Only disable it if you are migrating to a new device and
-                  immediately re-enable it afterwards.
-                </p>
+              <div>
+                <span className="font-medium">IP:</span> {lastLoginIp}
+              </div>
+              <div>
+                <span className="font-medium">Device:</span>{" "}
+                {lastLoginDevice} · {lastLoginBrowser}
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MonitorSmartphone className="h-4 w-4" />
+                Devices
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Unique devices that have logged into your account
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div>
+                <span className="font-medium">Known devices:</span>{" "}
+                {devices.length}
+              </div>
+              <div>
+                <span className="font-medium">Total logins:</span>{" "}
+                {rows.length}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                {hasFailedLogins ? (
+                  <AlertTriangle className="h-4 w-4 text-red-400" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                )}
+                Login health
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Failed login attempts can indicate brute-force or guessing
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                {hasFailedLogins ? (
+                  <span className="text-red-400">Attention needed</span>
+                ) : (
+                  <span className="text-emerald-400">No issues detected</span>
+                )}
+              </div>
+              {hasFailedLogins && (
+                <p className="text-[11px] text-muted-foreground">
+                  One or more failed login attempts were detected. If these
+                  weren&apos;t you, change your password and enable additional
+                  security measures.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Devices & logins table */}
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>Recent devices & IP addresses</CardTitle>
+            <CardDescription>
+              These are the devices and IP addresses that have recently accessed
+              your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {historyQuery.isLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : devices.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <AlertTriangle className="h-4 w-4" />
+                <span>No login events recorded yet for this account.</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>IP</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Browser</TableHead>
+                      <TableHead>Last seen</TableHead>
+                      <TableHead className="text-right">
+                        Logins / Failed
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {devices.map((d) => {
+                      const lastSeen =
+                        d.lastSeenAt &&
+                        new Date(d.lastSeenAt).toLocaleString();
+                      return (
+                        <TableRow key={d.key}>
+                          <TableCell className="text-xs md:text-sm">
+                            {d.ip || "Unknown"}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {d.device}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {d.browser}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {lastSeen || "-"}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            {d.totalLogins} /{" "}
+                            {d.failedLogins > 0 ? (
+                              <span className="text-red-400">
+                                {d.failedLogins}
+                              </span>
+                            ) : (
+                              d.failedLogins
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
