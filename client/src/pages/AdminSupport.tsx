@@ -24,58 +24,69 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   Loader2,
+  Shield,
   LifeBuoy,
-  MessageCircle,
   AlertCircle,
 } from "lucide-react";
 
-export default function Support() {
+type AdminUser = {
+  id: number;
+  email: string;
+  role: string;
+};
+
+const STATUS_FILTERS = ["all", "open", "pending", "closed"];
+
+export default function AdminSupport() {
   const { isAuthenticated, loading } = useAuth({
     redirectOnUnauthenticated: false,
     redirectPath: getLoginUrl(),
   });
 
-  const ticketsQuery = trpc.support.myTickets.useQuery(undefined, {
+  const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: isAuthenticated && !loading,
   });
 
-  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState("open");
+  const [categoryFilter, setCategoryFilter] = useState("");
 
-  const ticketDetailQuery = trpc.support.getTicket.useQuery(
-    { ticketId: selectedTicketId! } as any,
+  const ticketsQuery = trpc.support.listTickets.useQuery(
     {
-      enabled: isAuthenticated && !loading && selectedTicketId !== null,
-    }
+      status: statusFilter === "all" ? undefined : statusFilter,
+      category: categoryFilter || undefined,
+    } as any,
+    { enabled: isAuthenticated && !loading }
   );
 
-  const createTicketMutation = trpc.support.createTicket.useMutation({
-    onSuccess(data) {
-      ticketsQuery.refetch();
-      setNewTicket({
-        subject: "",
-        category: "",
-        message: "",
-      });
-      setSelectedTicketId(data.ticketId);
-    },
-  });
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const ticketDetailQuery = trpc.support.getTicket.useQuery(
+    { ticketId: selectedTicketId! } as any,
+    { enabled: isAuthenticated && !loading && selectedTicketId !== null }
+  );
 
-  const replyMutation = trpc.support.replyTicket.useMutation({
+  const replyMutation = trpc.support.adminReply.useMutation({
     onSuccess() {
       ticketDetailQuery.refetch();
+      ticketsQuery.refetch();
       setReplyMessage("");
+      setReplyStatus("");
+    },
+  });
+
+  const updateStatusMutation = trpc.support.adminUpdateStatus.useMutation({
+    onSuccess() {
+      ticketDetailQuery.refetch();
       ticketsQuery.refetch();
     },
   });
 
-  const [newTicket, setNewTicket] = useState({
-    subject: "",
-    category: "",
-    message: "",
-  });
   const [replyMessage, setReplyMessage] = useState("");
+  const [replyStatus, setReplyStatus] = useState("");
 
-  if (loading) {
+  const isAdmin =
+    meQuery.data?.user && (meQuery.data.user as AdminUser).role === "admin";
+
+  if (loading || meQuery.isLoading || ticketsQuery.isLoading) {
     return (
       <div className="min-h-screen flex flex-col">
         <UserNav />
@@ -86,23 +97,31 @@ export default function Support() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !isAdmin) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LifeBuoy className="h-5 w-5" />
-              Support center
+              <Shield className="h-5 w-5" />
+              Admin – Support
             </CardTitle>
             <CardDescription>
-              You must be logged in to create and view support tickets.
+              You must be logged in as an admin to manage support tickets.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button asChild className="w-full">
-              <a href={getLoginUrl()}>Go to login</a>
-            </Button>
+            {!isAuthenticated && (
+              <Button asChild className="w-full">
+                <a href={getLoginUrl()}>Go to login</a>
+              </Button>
+            )}
+            {isAuthenticated && !isAdmin && (
+              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                <AlertCircle className="h-4 w-4 mt-0.5" />
+                <p>This account does not have admin permissions.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -110,30 +129,27 @@ export default function Support() {
   }
 
   const tickets = ticketsQuery.data ?? [];
+  const selectedTicket = ticketDetailQuery.data?.ticket;
+  const messages = ticketDetailQuery.data?.messages ?? [];
 
-  const handleNewTicketSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTicket.subject.trim() || !newTicket.message.trim()) return;
-
-    createTicketMutation.mutate({
-      subject: newTicket.subject.trim(),
-      category: newTicket.category.trim() || undefined,
-      message: newTicket.message.trim(),
-    } as any);
-  };
-
-  const handleReplySubmit = (e: React.FormEvent) => {
+  const handleReply = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTicketId || !replyMessage.trim()) return;
 
     replyMutation.mutate({
       ticketId: selectedTicketId,
       message: replyMessage.trim(),
+      newStatus: replyStatus ? (replyStatus as any) : undefined,
     } as any);
   };
 
-  const selectedTicket = ticketDetailQuery.data?.ticket;
-  const messages = ticketDetailQuery.data?.messages ?? [];
+  const handleStatusOnly = (status: string) => {
+    if (!selectedTicketId) return;
+    updateStatusMutation.mutate({
+      ticketId: selectedTicketId,
+      status: status as any,
+    } as any);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,23 +159,70 @@ export default function Support() {
           <div>
             <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
               <LifeBuoy className="h-7 w-7" />
-              Support center
+              Admin – Support tickets
             </h1>
             <p className="text-muted-foreground">
-              Open a ticket if you need help with deposits, withdrawals, KYC, or your
-              account.
+              Review and respond to user support tickets.
             </p>
           </div>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)]">
-          {/* Left: tickets + new ticket */}
-          <div className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)]">
+          {/* Left: filters + list */}
+          <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Your tickets</CardTitle>
+                <CardTitle>Filters</CardTitle>
                 <CardDescription>
-                  Most recent requests. Click a ticket to view the conversation.
+                  Filter tickets by status or category.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <select
+                    id="status"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    {STATUS_FILTERS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <Input
+                    id="category"
+                    placeholder="Deposits, Withdrawals, KYC..."
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => ticketsQuery.refetch()}
+                    disabled={ticketsQuery.isFetching}
+                  >
+                    {ticketsQuery.isFetching && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Apply
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Tickets</CardTitle>
+                <CardDescription>
+                  Click a ticket to view the full conversation.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -169,7 +232,7 @@ export default function Support() {
                   </div>
                 ) : tickets.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    You don&apos;t have any tickets yet.
+                    No tickets match the current filters.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -177,6 +240,7 @@ export default function Support() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>ID</TableHead>
+                          <TableHead>User</TableHead>
                           <TableHead>Subject</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Updated</TableHead>
@@ -188,6 +252,9 @@ export default function Support() {
                           <TableRow key={t.id}>
                             <TableCell className="text-xs md:text-sm">
                               #{t.id}
+                            </TableCell>
+                            <TableCell className="text-xs md:text-sm">
+                              {t.userEmail || `#${t.userId}`}
                             </TableCell>
                             <TableCell className="text-xs md:text-sm">
                               {t.subject}
@@ -208,7 +275,6 @@ export default function Support() {
                                 }
                                 onClick={() => setSelectedTicketId(t.id)}
                               >
-                                <MessageCircle className="h-3 w-3 mr-1" />
                                 View
                               </Button>
                             </TableCell>
@@ -220,77 +286,6 @@ export default function Support() {
                 )}
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Open a new ticket</CardTitle>
-                <CardDescription>
-                  Describe your issue clearly so our team can help you faster.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleNewTicketSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="subject">Subject</Label>
-                    <Input
-                      id="subject"
-                      placeholder="Example: Problem with USDT withdrawal"
-                      value={newTicket.subject}
-                      onChange={(e) =>
-                        setNewTicket((p) => ({ ...p, subject: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Category (optional)</Label>
-                    <Input
-                      id="category"
-                      placeholder="Deposits, Withdrawals, KYC, Account..."
-                      value={newTicket.category}
-                      onChange={(e) =>
-                        setNewTicket((p) => ({ ...p, category: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="message">Message</Label>
-                    <Textarea
-                      id="message"
-                      rows={4}
-                      placeholder="Explain your issue with all relevant details (tx IDs, amount, timestamps, etc.)"
-                      value={newTicket.message}
-                      onChange={(e) =>
-                        setNewTicket((p) => ({ ...p, message: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      disabled={
-                        createTicketMutation.isPending ||
-                        !newTicket.subject.trim() ||
-                        !newTicket.message.trim()
-                      }
-                    >
-                      {createTicketMutation.isPending && (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      )}
-                      Submit ticket
-                    </Button>
-                  </div>
-                  {createTicketMutation.isError && (
-                    <div className="mt-1 flex items-start gap-2 text-sm text-destructive">
-                      <AlertCircle className="h-4 w-4 mt-0.5" />
-                      <p>
-                        {(createTicketMutation.error as any)?.message ||
-                          "Failed to create ticket. Please check your details and try again."}
-                      </p>
-                    </div>
-                  )}
-                </form>
-              </CardContent>
-            </Card>
           </div>
 
           {/* Right: ticket detail */}
@@ -298,13 +293,13 @@ export default function Support() {
             <CardHeader>
               <CardTitle>Conversation</CardTitle>
               <CardDescription>
-                Messages exchanged with support for the selected ticket.
+                Messages exchanged with the user for the selected ticket.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!selectedTicketId ? (
                 <p className="text-sm text-muted-foreground">
-                  Select a ticket from the list on the left to view the conversation.
+                  Select a ticket from the list to view and reply.
                 </p>
               ) : ticketDetailQuery.isLoading ? (
                 <div className="flex items-center justify-center py-6">
@@ -323,8 +318,34 @@ export default function Support() {
                           #{selectedTicket.id} – {selectedTicket.subject}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Status: {selectedTicket.status}
+                          User: {selectedTicket.userEmail || `#${selectedTicket.userId}`}
                         </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="rounded-md border bg-background px-2 py-1 text-xs"
+                          value={replyStatus || selectedTicket.status}
+                          onChange={(e) => setReplyStatus(e.target.value)}
+                        >
+                          <option value="open">open</option>
+                          <option value="pending">pending</option>
+                          <option value="closed">closed</option>
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            handleStatusOnly(
+                              replyStatus || selectedTicket.status || "open"
+                            )
+                          }
+                          disabled={updateStatusMutation.isPending}
+                        >
+                          {updateStatusMutation.isPending && (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          )}
+                          Set status
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -342,7 +363,7 @@ export default function Support() {
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <span className="font-medium">
-                            {m.authorRole === "user" ? "You" : "Support"}
+                            {m.authorRole === "user" ? "User" : "Admin"}
                           </span>
                           <span className="text-[10px] text-muted-foreground">
                             {m.createdAt
@@ -360,45 +381,37 @@ export default function Support() {
                     )}
                   </div>
 
-                  {selectedTicket.status === "closed" ? (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      This ticket is closed. You cannot send new replies.
-                    </p>
-                  ) : (
-                    <form onSubmit={handleReplySubmit} className="space-y-2 pt-3 border-t">
-                      <Label htmlFor="reply">Your reply</Label>
-                      <Textarea
-                        id="reply"
-                        rows={3}
-                        placeholder="Type your reply to the support team..."
-                        value={replyMessage}
-                        onChange={(e) => setReplyMessage(e.target.value)}
-                      />
-                      <div className="flex justify-end">
-                        <Button
-                          type="submit"
-                          size="sm"
-                          disabled={
-                            replyMutation.isPending || !replyMessage.trim()
-                          }
-                        >
-                          {replyMutation.isPending && (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          )}
-                          Send reply
-                        </Button>
+                  <form onSubmit={handleReply} className="space-y-2 pt-3 border-t">
+                    <Label htmlFor="reply">Reply as admin</Label>
+                    <Textarea
+                      id="reply"
+                      rows={3}
+                      placeholder="Type your reply to the user..."
+                      value={replyMessage}
+                      onChange={(e) => setReplyMessage(e.target.value)}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={replyMutation.isPending || !replyMessage.trim()}
+                      >
+                        {replyMutation.isPending && (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        )}
+                        Send reply
+                      </Button>
+                    </div>
+                    {replyMutation.isError && (
+                      <div className="mt-1 flex items-start gap-2 text-xs text-destructive">
+                        <AlertCircle className="h-4 w-4 mt-0.5" />
+                        <p>
+                          {(replyMutation.error as any)?.message ||
+                            "Failed to send reply. Please try again."}
+                        </p>
                       </div>
-                      {replyMutation.isError && (
-                        <div className="mt-1 flex items-start gap-2 text-xs text-destructive">
-                          <AlertCircle className="h-4 w-4 mt-0.5" />
-                          <p>
-                            {(replyMutation.error as any)?.message ||
-                              "Failed to send reply. Please try again."}
-                          </p>
-                        </div>
-                      )}
-                    </form>
-                  )}
+                    )}
+                  </form>
                 </>
               )}
             </CardContent>

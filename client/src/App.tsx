@@ -19,12 +19,14 @@ import Promo from "./pages/Promo";
 import DepositGateway from "./pages/DepositGateway";
 import InternalTransfer from "./pages/InternalTransfer";
 import Transactions from "./pages/Transactions";
+import Support from "./pages/Support";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
 import AdminLogs from "./pages/AdminLogs";
 import AdminPayments from "./pages/AdminPayments";
 import AdminPromos from "./pages/AdminPromos";
+import AdminSupport from "./pages/AdminSupport";
 
 function Router() {
   return (
@@ -39,6 +41,7 @@ function Router() {
       <Route path={"/staking"} component={Staking} />
       <Route path={"/promo"} component={Promo} />
       <Route path={"/transactions"} component={Transactions} />
+      <Route path={"/support"} component={Support} />
       <Route path={"/profile"} component={Profile} />
       <Route path={"/security"} component={Security} />
       <Route path={"/login-history"} component={LoginHistory} />
@@ -50,6 +53,7 @@ function Router() {
       <Route path={"/admin/logs"} component={AdminLogs} />
       <Route path={"/admin/payments"} component={AdminPayments} />
       <Route path={"/admin/promos"} component={AdminPromos} />
+      <Route path={"/admin/support"} component={AdminSupport} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
