@@ -8,6 +8,7 @@ import {
 } from "./staking";
 import { TRPCError } from "@trpc/server";
 import { logSecurity } from "./logger";
+import { idSchema, cryptoAmountSchema } from "./validation";
 
 export const stakingRouter = router({
   // Public – list active staking products
@@ -29,8 +30,8 @@ export const stakingRouter = router({
   stake: authedProcedure
     .input(
       z.object({
-        productId: z.number().int().positive(),
-        amount: z.number().positive().max(1_000_000_000),
+        productId: idSchema,
+        amount: cryptoAmountSchema,
       })
     )
     .mutation(({ ctx, input }) => {
@@ -91,61 +92,69 @@ export const stakingRouter = router({
         });
       }
 
-      const tx = (db as any).transaction(
-        (
-          userId: number,
-          productId: number,
-          asset: string,
-          amount: number,
-          apr: number,
-          lockDays: number,
-          now: string
-        ) => {
-          // deduct from wallet
-          db.prepare(
-            "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
-          ).run(amount, userId, asset);
+      try {
+        const tx = (db as any).transaction(
+          (
+            userId: number,
+            productId: number,
+            asset: string,
+            amount: number,
+            apr: number,
+            lockDays: number,
+            now: string
+          ) => {
+            // deduct from wallet
+            db.prepare(
+              "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
+            ).run(amount, userId, asset);
 
-          // create position
-          const res = db
-            .prepare(
-              `INSERT INTO stakingPositions
-                (userId, productId, asset, amount, apr, lockDays, startedAt, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`
-            )
-            .run(userId, productId, asset, amount, apr, lockDays, now);
+            // create position
+            const res = db
+              .prepare(
+                `INSERT INTO stakingPositions
+                  (userId, productId, asset, amount, apr, lockDays, startedAt, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`
+              )
+              .run(userId, productId, asset, amount, apr, lockDays, now);
 
-          const positionId = Number(res.lastInsertRowid);
-          return positionId;
-        }
-      );
+            const positionId = Number(res.lastInsertRowid);
+            return positionId;
+          }
+        );
 
-      const positionId = tx(
-        user.id,
-        product.id,
-        product.asset,
-        input.amount,
-        product.apr,
-        product.lockDays,
-        now
-      );
+        const positionId = tx(
+          user.id,
+          product.id,
+          product.asset,
+          input.amount,
+          product.apr,
+          product.lockDays,
+          now
+        );
 
-      logSecurity("Staking created", {
-        userId: user.id,
-        productId: product.id,
-        positionId,
-        amount: input.amount,
-        asset: product.asset,
-      });
+        logSecurity("Staking created", {
+          userId: user.id,
+          productId: product.id,
+          positionId,
+          amount: input.amount,
+          asset: product.asset,
+        });
 
-      return { success: true, positionId };
+        return { success: true, positionId };
+      } catch (err) {
+        console.error("[staking] Failed to create staking position:", err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create staking position. Please try again later.",
+        });
+      }
     }),
 
   // User – unstake (after lock period)
   unstake: authedProcedure
     .input(
       z.object({
-        positionId: z.number().int().positive(),
+        positionId: idSchema,
       })
     )
     .mutation(({ ctx, input }) => {
@@ -207,57 +216,65 @@ export const stakingRouter = router({
         status: "closed",
       });
 
-      const tx = (db as any).transaction(
-        (
-          positionId: number,
-          userId: number,
-          asset: string,
-          principal: number,
-          rewardAmount: number,
-          closedAtIso: string
-        ) => {
-          // close position
-          db.prepare(
-            `UPDATE stakingPositions
-             SET status = 'closed', closedAt = ?
-             WHERE id = ?`
-          ).run(closedAtIso, positionId);
-
-          const totalReturn = principal + rewardAmount;
-
-          // credit wallet
-          const existing = db
-            .prepare(
-              "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
-            )
-            .get(userId, asset) as { balance: number } | undefined;
-
-          if (existing) {
+      try {
+        const tx = (db as any).transaction(
+          (
+            positionId: number,
+            userId: number,
+            asset: string,
+            principal: number,
+            rewardAmount: number,
+            closedAtIso: string
+          ) => {
+            // close position
             db.prepare(
-              "UPDATE wallets SET balance = balance + ? WHERE userId = ? AND asset = ?"
-            ).run(totalReturn, userId, asset);
-          } else {
-            db.prepare(
-              "INSERT INTO wallets (userId, asset, balance) VALUES (?, ?, ?)"
-            ).run(userId, asset, totalReturn);
+              `UPDATE stakingPositions
+               SET status = 'closed', closedAt = ?
+               WHERE id = ?`
+            ).run(closedAtIso, positionId);
+
+            const totalReturn = principal + rewardAmount;
+
+            // credit wallet
+            const existing = db
+              .prepare(
+                "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
+              )
+              .get(userId, asset) as { balance: number } | undefined;
+
+            if (existing) {
+              db.prepare(
+                "UPDATE wallets SET balance = balance + ? WHERE userId = ? AND asset = ?"
+              ).run(totalReturn, userId, asset);
+            } else {
+              db.prepare(
+                "INSERT INTO wallets (userId, asset, balance) VALUES (?, ?, ?)"
+              ).run(userId, asset, totalReturn);
+            }
           }
-        }
-      );
+        );
 
-      const closedAtIso = now.toISOString();
-      tx(pos.id, user.id, pos.asset, pos.amount, reward, closedAtIso);
+        const closedAtIso = now.toISOString();
+        tx(pos.id, user.id, pos.asset, pos.amount, reward, closedAtIso);
 
-      logSecurity("Staking closed", {
-        userId: user.id,
-        positionId: pos.id,
-        asset: pos.asset,
-        principal: pos.amount,
-        reward,
-      });
+        logSecurity("Staking closed", {
+          userId: user.id,
+          positionId: pos.id,
+          asset: pos.asset,
+          principal: pos.amount,
+          reward,
+        });
 
-      return {
-        success: true,
-        reward,
-      };
+        return {
+          success: true,
+          reward,
+        };
+      } catch (err) {
+        console.error("[staking] Failed to close staking position:", err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to close staking position. Please try again later.",
+        });
+      }
     }),
 });
