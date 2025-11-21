@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableHeader,
@@ -21,46 +20,68 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import { AlertCircle, SendHorizonal, Loader2, Users } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import {
+  ArrowRightLeft,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 
-const DEFAULT_ASSETS = [
-  "BTC",
-  "ETH",
-  "USDT",
-  "USDC",
-  "BNB",
-  "XRP",
-  "ADA",
-  "SOL",
-  "MATIC",
-];
+type TransferRow = {
+  id: number;
+  fromUserId: number;
+  toUserId: number;
+  asset: string;
+  amount: number;
+  note: string | null;
+  status: string;
+  createdAt: string;
+};
 
 export default function InternalTransfer() {
-  const { isAuthenticated, loading } = useAuth({
+  const { isAuthenticated, loading, user } = useAuth({
     redirectOnUnauthenticated: false,
     redirectPath: getLoginUrl(),
   });
 
-  const historyQuery = trpc.internal.historyForUser.useQuery(undefined, {
-    enabled: isAuthenticated && !loading,
+  const transfersQuery = trpc.internalTransfer.myTransfers.useQuery(
+    { limit: 100 } as any,
+    { enabled: isAuthenticated && !loading }
+  );
+
+  const createMutation = trpc.internalTransfer.createTransfer.useMutation({
+    onSuccess() {
+      setRecipientEmail("");
+      setAsset("USDT");
+      setAmount("");
+      setNote("");
+      transfersQuery.refetch();
+    },
   });
 
   const [recipientEmail, setRecipientEmail] = useState("");
   const [asset, setAsset] = useState("USDT");
-  const [amount, setAmount] = useState("10");
-  const [memo, setMemo] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
 
-  const transferMutation = trpc.internal.createTransfer.useMutation({
-    onSuccess() {
-      historyQuery.refetch();
-      setAmount("10");
-      setMemo("");
-    },
-  });
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recipientEmail || !amount) return;
+
+    const parsed = Number(amount);
+    if (!parsed || parsed <= 0) return;
+
+    createMutation.mutate({
+      recipientEmail,
+      asset,
+      amount: parsed,
+      note: note || undefined,
+    } as any);
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col bg-background">
         <UserNav />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -75,11 +96,11 @@ export default function InternalTransfer() {
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Internal transfers
+              <ArrowRightLeft className="h-5 w-5" />
+              Internal transfer
             </CardTitle>
             <CardDescription>
-              You must be logged in to send internal transfers.
+              You must be logged in to send funds to another user.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -92,20 +113,8 @@ export default function InternalTransfer() {
     );
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amt = Number(amount);
-    if (!amt || amt <= 0) return;
-
-    transferMutation.mutate({
-      recipientEmail,
-      asset,
-      amount: amt,
-      memo: memo || undefined,
-    } as any);
-  };
-
-  const rows = historyQuery.data ?? [];
+  const transfers = (transfersQuery.data ?? []) as TransferRow[];
+  const userId = user?.id;
 
   return (
     <div className="min-h-screen bg-background">
@@ -114,118 +123,119 @@ export default function InternalTransfer() {
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
-              <SendHorizonal className="h-7 w-7" />
-              Internal transfers
+              <ArrowRightLeft className="h-7 w-7" />
+              Internal transfer
             </h1>
             <p className="text-muted-foreground">
-              Send balance to other users on the platform instantly, without using any
-              external network or gas fees.
+              Instantly send funds to another BitChange user using their email
+              address. Transfers are processed inside the exchange and do not
+              touch the blockchain.
             </p>
           </div>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.9fr)]">
-          {/* Left: form */}
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)]">
+          {/* Transfer form */}
           <Card>
             <CardHeader>
-              <CardTitle>Send to another user</CardTitle>
+              <CardTitle>Send funds</CardTitle>
               <CardDescription>
-                Enter the recipient&apos;s email, select an asset and amount, and confirm
-                the transfer.
+                Enter the recipient&apos;s email and the amount you want to send.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="recipientEmail">Recipient email</Label>
+                  <Label htmlFor="recipient">Recipient email</Label>
                   <Input
-                    id="recipientEmail"
+                    id="recipient"
                     type="email"
-                    placeholder="user@example.com"
+                    placeholder="recipient@example.com"
                     value={recipientEmail}
                     onChange={(e) => setRecipientEmail(e.target.value)}
+                    required
                   />
                 </div>
-
-                <div className="grid gap-4 md:grid-cols-[140px_minmax(0,1fr)]">
-                  <div className="space-y-2">
-                    <Label htmlFor="asset">Asset</Label>
-                    <select
-                      id="asset"
-                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                      value={asset}
-                      onChange={(e) => setAsset(e.target.value)}
-                    >
-                      {DEFAULT_ASSETS.map((a) => (
-                        <option key={a} value={a}>
-                          {a}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="amount">Amount</Label>
-                    <Input
-                      id="amount"
-                      type="number"
-                      min={0}
-                      step="0.00000001"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="memo">Memo (optional)</Label>
+                  <Label htmlFor="asset">Asset</Label>
                   <Input
-                    id="memo"
-                    placeholder="For example: Payment for course"
-                    value={memo}
-                    onChange={(e) => setMemo(e.target.value)}
+                    id="asset"
+                    type="text"
+                    value={asset}
+                    onChange={(e) => setAsset(e.target.value.toUpperCase())}
+                    placeholder="USDT"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Asset symbol must match one of your wallet balances (e.g.
+                    USDT, BTC, ETH).
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="amount">Amount</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    min={0}
+                    step="0.00000001"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    required
                   />
                 </div>
-
-                <div className="flex justify-end">
+                <div className="space-y-2">
+                  <Label htmlFor="note">Note (optional)</Label>
+                  <Input
+                    id="note"
+                    type="text"
+                    maxLength={255}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="For example: payment for course..."
+                  />
+                </div>
+                <div className="pt-2 flex justify-end">
                   <Button
                     type="submit"
-                    disabled={transferMutation.isPending || !recipientEmail || !amount}
+                    disabled={createMutation.isPending}
                   >
-                    {transferMutation.isPending && (
+                    {createMutation.isPending && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
-                    Send transfer
+                    Send
                   </Button>
                 </div>
-
-                {transferMutation.isError && (
-                  <div className="mt-2 flex items-start gap-2 text-sm text-destructive">
+                {createMutation.isError && (
+                  <div className="mt-2 flex items-start gap-2 text-xs text-destructive">
                     <AlertCircle className="h-4 w-4 mt-0.5" />
                     <p>
-                      Failed to create internal transfer. Please check your inputs or
-                      your balance and try again.
+                      {(createMutation.error as any)?.message ||
+                        "Failed to create internal transfer."}
                     </p>
                   </div>
+                )}
+                {createMutation.isSuccess && (
+                  <p className="mt-2 text-xs text-emerald-400">
+                    Transfer created successfully.
+                  </p>
                 )}
               </form>
             </CardContent>
           </Card>
 
-          {/* Right: history */}
+          {/* History */}
           <Card className="overflow-hidden">
             <CardHeader>
-              <CardTitle>Your internal transfers</CardTitle>
+              <CardTitle>Transfer history</CardTitle>
               <CardDescription>
-                History of transfers you sent or received from other users.
+                Recent internal transfers you sent or received.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {historyQuery.isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              {transfersQuery.isLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
-              ) : rows.length === 0 ? (
+              ) : transfers.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   You don&apos;t have any internal transfers yet.
                 </p>
@@ -234,50 +244,39 @@ export default function InternalTransfer() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Date</TableHead>
                         <TableHead>Direction</TableHead>
                         <TableHead>Asset</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Counterparty</TableHead>
-                        <TableHead>Memo</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Email / Note</TableHead>
+                        <TableHead className="text-right">Status</TableHead>
+                        <TableHead className="text-right">Date</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {rows.map((t: any) => {
+                      {transfers.map((t) => {
+                        const isOutgoing = userId != null && t.fromUserId === userId;
                         const dateStr = t.createdAt
                           ? new Date(t.createdAt).toLocaleString()
                           : "-";
-                        const direction =
-                          t.fromUserId === (historyQuery.data?.[0]?.userId ?? null)
-                            ? "Sent"
-                            : "Sent/received"; // fallback if we don't know; you can improve later
-
                         return (
                           <TableRow key={t.id}>
                             <TableCell className="text-xs md:text-sm">
-                              {dateStr}
-                            </TableCell>
-                            <TableCell className="text-xs md:text-sm">
-                              {t.fromUserId === t.toUserId
-                                ? "Self"
-                                : t.fromUserId === undefined
-                                ? "-"
-                                : t.fromUserId === (historyQuery.data?.[0]?.userId ?? null)
-                                ? "Sent"
-                                : "Received"}
+                              {isOutgoing ? "Sent" : "Received"}
                             </TableCell>
                             <TableCell className="text-xs md:text-sm">
                               {t.asset}
                             </TableCell>
-                            <TableCell className="text-xs md:text-sm">
+                            <TableCell className="text-xs md:text-sm text-right">
                               {t.amount}
                             </TableCell>
-                            <TableCell className="text-xs md:text-xs">
-                              {/* we only have IDs here; for now show user IDs; can join emails later */}
-                              From #{t.fromUserId} / To #{t.toUserId}
+                            <TableCell className="text-[11px] md:text-xs">
+                              {t.note || "—"}
                             </TableCell>
-                            <TableCell className="text-xs md:text-xs">
-                              {t.memo || "—"}
+                            <TableCell className="text-[11px] md:text-xs text-right capitalize">
+                              {t.status}
+                            </TableCell>
+                            <TableCell className="text-[11px] md:text-xs text-right">
+                              {dateStr}
                             </TableCell>
                           </TableRow>
                         );
