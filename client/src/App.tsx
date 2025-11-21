@@ -15,13 +15,16 @@ import LoginHistory from "./pages/LoginHistory";
 import Kyc from "./pages/Kyc";
 import Prices from "./pages/Prices";
 import Staking from "./pages/Staking";
+import Promo from "./pages/Promo";
 import DepositGateway from "./pages/DepositGateway";
 import InternalTransfer from "./pages/InternalTransfer";
+import Transactions from "./pages/Transactions";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminKyc from "./pages/AdminKyc";
 import AdminLogs from "./pages/AdminLogs";
 import AdminPayments from "./pages/AdminPayments";
+import AdminPromos from "./pages/AdminPromos";
 
 function Router() {
   return (
@@ -34,6 +37,8 @@ function Router() {
       <Route path={"/transfer"} component={InternalTransfer} />
       <Route path={"/trading"} component={Trading} />
       <Route path={"/staking"} component={Staking} />
+      <Route path={"/promo"} component={Promo} />
+      <Route path={"/transactions"} component={Transactions} />
       <Route path={"/profile"} component={Profile} />
       <Route path={"/security"} component={Security} />
       <Route path={"/login-history"} component={LoginHistory} />
@@ -44,6 +49,7 @@ function Router() {
       <Route path={"/admin/kyc"} component={AdminKyc} />
       <Route path={"/admin/logs"} component={AdminLogs} />
       <Route path={"/admin/payments"} component={AdminPayments} />
+      <Route path={"/admin/promos"} component={AdminPromos} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
