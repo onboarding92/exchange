@@ -1,215 +1,231 @@
 import { router, authedProcedure, publicProcedure } from "./trpc";
 import { z } from "zod";
 import { db } from "./db";
+import {
+  listActiveStakingProducts,
+  listUserPositions,
+  calculateAccruedReward,
+} from "./staking";
 import { TRPCError } from "@trpc/server";
-import { listActivePlans, listUserStakes, calcRewards, StakingPlan } from "./staking";
-import { logSecurity, logWarn } from "./logger";
-
-const assetSchema = z
-  .string()
-  .min(2)
-  .max(20)
-  .regex(/^[A-Z0-9]+$/, "Asset must be uppercase (e.g. USDT, BTC)");
+import { logSecurity } from "./logger";
 
 export const stakingRouter = router({
-  // Public list of active staking plans
-  listPlans: publicProcedure.query(() => {
-    const plans = listActivePlans();
-    return plans;
+  // Public – list active staking products
+  listProducts: publicProcedure.query(() => {
+    return listActiveStakingProducts();
   }),
 
-  // List stakes for the current user
-  myStakes: authedProcedure.query(({ ctx }) => {
+  // User – list own positions with computed rewards
+  myPositions: authedProcedure.query(({ ctx }) => {
     const user = ctx.user!;
-    const stakes = listUserStakes(user.id);
-    return stakes;
+    const rows = listUserPositions(user.id);
+    return rows.map((p) => ({
+      ...p,
+      accruedReward: calculateAccruedReward(p),
+    }));
   }),
 
-  // Create a new stake
-  createStake: authedProcedure
+  // User – stake from wallet
+  stake: authedProcedure
     .input(
       z.object({
-        planId: z.number().int().positive(),
+        productId: z.number().int().positive(),
         amount: z.number().positive().max(1_000_000_000),
       })
     )
     .mutation(({ ctx, input }) => {
       const user = ctx.user!;
-      const userId = user.id;
+      const now = new Date().toISOString();
 
-      const plan = db
+      const product = db
         .prepare(
-          "SELECT id, name, asset, apr, lockDays, minAmount, maxAmount, isActive FROM stakingPlans WHERE id = ?"
+          `SELECT id, asset, name, apr, lockDays, minAmount, maxAmount, isActive
+           FROM stakingProducts
+           WHERE id = ?`
         )
-        .get(input.planId) as StakingPlan | undefined;
+        .get(input.productId) as
+        | {
+            id: number;
+            asset: string;
+            name: string;
+            apr: number;
+            lockDays: number;
+            minAmount: number;
+            maxAmount: number | null;
+            isActive: number;
+          }
+        | undefined;
 
-      if (!plan || !plan.isActive) {
+      if (!product || !product.isActive) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Staking plan not found or inactive.",
+          message: "Staking product not available.",
         });
       }
 
-      if (input.amount < plan.minAmount) {
+      if (input.amount < product.minAmount) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Minimum amount for this plan is ${plan.minAmount}.`,
+          message: `Minimum amount is ${product.minAmount} ${product.asset}.`,
         });
       }
 
-      if (plan.maxAmount && input.amount > plan.maxAmount) {
+      if (product.maxAmount !== null && input.amount > product.maxAmount) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Maximum amount for this plan is ${plan.maxAmount}.`,
+          message: `Maximum amount is ${product.maxAmount} ${product.asset}.`,
         });
       }
 
-      // Check wallet balance
-      const wallet = db
+      const walletRow = db
         .prepare(
           "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
         )
-        .get(userId, plan.asset) as { balance: number } | undefined;
+        .get(user.id, product.asset) as { balance: number } | undefined;
 
-      if (!wallet || wallet.balance < input.amount) {
-        logWarn("Staking failed: insufficient balance", {
-          userId,
-          asset: plan.asset,
-          requestedAmount: input.amount,
-          balance: wallet?.balance ?? 0,
-        });
+      const currentBalance = walletRow?.balance ?? 0;
+      if (currentBalance < input.amount) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Insufficient balance for staking.",
+          message: `Insufficient ${product.asset} balance.`,
         });
       }
-
-      const now = new Date();
-      const startAt = now.toISOString();
-      const unlockAt = new Date(
-        now.getTime() + plan.lockDays * 24 * 60 * 60 * 1000
-      ).toISOString();
 
       const tx = (db as any).transaction(
         (
           userId: number,
+          productId: number,
           asset: string,
           amount: number,
-          planId: number,
           apr: number,
           lockDays: number,
-          startAt: string,
-          unlockAt: string
+          now: string
         ) => {
-          // Subtract funds from wallet
+          // deduct from wallet
           db.prepare(
             "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
           ).run(amount, userId, asset);
 
-          // Insert stake
-          db.prepare(
-            `INSERT INTO userStakes
-              (userId, planId, asset, amount, apr, lockDays, startAt, unlockAt, claimedRewards, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')`
-          ).run(
-            userId,
-            planId,
-            asset,
-            amount,
-            apr,
-            lockDays,
-            startAt,
-            unlockAt
-          );
+          // create position
+          const res = db
+            .prepare(
+              `INSERT INTO stakingPositions
+                (userId, productId, asset, amount, apr, lockDays, startedAt, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`
+            )
+            .run(userId, productId, asset, amount, apr, lockDays, now);
+
+          const positionId = Number(res.lastInsertRowid);
+          return positionId;
         }
       );
 
-      tx(
-        userId,
-        plan.asset,
+      const positionId = tx(
+        user.id,
+        product.id,
+        product.asset,
         input.amount,
-        plan.id,
-        plan.apr,
-        plan.lockDays,
-        startAt,
-        unlockAt
+        product.apr,
+        product.lockDays,
+        now
       );
 
-      logSecurity("Created staking position", {
-        userId,
-        planId: plan.id,
-        asset: plan.asset,
+      logSecurity("Staking created", {
+        userId: user.id,
+        productId: product.id,
+        positionId,
         amount: input.amount,
+        asset: product.asset,
       });
 
-      return { success: true };
+      return { success: true, positionId };
     }),
 
-  // Claim a stake (principal + rewards) after lock ends
-  claimStake: authedProcedure
+  // User – unstake (after lock period)
+  unstake: authedProcedure
     .input(
       z.object({
-        stakeId: z.number().int().positive(),
+        positionId: z.number().int().positive(),
       })
     )
     .mutation(({ ctx, input }) => {
       const user = ctx.user!;
-      const userId = user.id;
+      const now = new Date();
 
-      const stake = db
+      const pos = db
         .prepare(
-          `SELECT id, userId, planId, asset, amount, apr, lockDays,
-                  startAt, unlockAt, claimedRewards, status
-           FROM userStakes
+          `SELECT id, userId, productId, asset, amount, apr, lockDays,
+                  startedAt, closedAt, status
+           FROM stakingPositions
            WHERE id = ?`
         )
-        .get(input.stakeId) as any;
+        .get(input.positionId) as
+        | {
+            id: number;
+            userId: number;
+            productId: number;
+            asset: string;
+            amount: number;
+            apr: number;
+            lockDays: number;
+            startedAt: string;
+            closedAt: string | null;
+            status: string;
+          }
+        | undefined;
 
-      if (!stake || stake.userId !== userId) {
+      if (!pos || pos.userId !== user.id) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Stake not found.",
+          message: "Position not found.",
         });
       }
 
-      if (stake.status !== "active") {
+      if (pos.status !== "active") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "This stake is not active.",
+          message: "This position is already closed.",
         });
       }
 
-      const now = new Date();
-      const unlockAt = new Date(stake.unlockAt);
-      if (now.getTime() < unlockAt.getTime()) {
+      const startedAt = new Date(pos.startedAt);
+      const diffDays =
+        (now.getTime() - startedAt.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (diffDays < pos.lockDays) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Stake is still locked.",
+          message: `This staking is locked for ${pos.lockDays} days. You can unstake after the lock period.`,
         });
       }
 
-      const totalReward = calcRewards(
-        {
-          amount: stake.amount,
-          apr: stake.apr,
-          startAt: stake.startAt,
-          unlockAt: stake.unlockAt,
-        },
-        now
-      );
-
-      const rewardToCredit = Math.max(0, totalReward - stake.claimedRewards);
-      const principal = stake.amount;
+      const reward = calculateAccruedReward({
+        amount: pos.amount,
+        apr: pos.apr,
+        startedAt: pos.startedAt,
+        closedAt: now.toISOString(),
+        status: "closed",
+      });
 
       const tx = (db as any).transaction(
         (
+          positionId: number,
           userId: number,
           asset: string,
           principal: number,
-          reward: number,
-          stakeId: number
+          rewardAmount: number,
+          closedAtIso: string
         ) => {
-          // Credit wallet with principal + reward
+          // close position
+          db.prepare(
+            `UPDATE stakingPositions
+             SET status = 'closed', closedAt = ?
+             WHERE id = ?`
+          ).run(closedAtIso, positionId);
+
+          const totalReturn = principal + rewardAmount;
+
+          // credit wallet
           const existing = db
             .prepare(
               "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
@@ -219,32 +235,29 @@ export const stakingRouter = router({
           if (existing) {
             db.prepare(
               "UPDATE wallets SET balance = balance + ? WHERE userId = ? AND asset = ?"
-            ).run(principal + reward, userId, asset);
+            ).run(totalReturn, userId, asset);
           } else {
             db.prepare(
               "INSERT INTO wallets (userId, asset, balance) VALUES (?, ?, ?)"
-            ).run(userId, asset, principal + reward);
+            ).run(userId, asset, totalReturn);
           }
-
-          db.prepare(
-            "UPDATE userStakes SET status = 'claimed', claimedRewards = claimedRewards + ? WHERE id = ?"
-          ).run(reward, stakeId);
         }
       );
 
-      tx(userId, stake.asset, principal, rewardToCredit, stake.id);
+      const closedAtIso = now.toISOString();
+      tx(pos.id, user.id, pos.asset, pos.amount, reward, closedAtIso);
 
-      logSecurity("Stake claimed", {
-        userId,
-        stakeId: stake.id,
-        principal,
-        rewardToCredit,
+      logSecurity("Staking closed", {
+        userId: user.id,
+        positionId: pos.id,
+        asset: pos.asset,
+        principal: pos.amount,
+        reward,
       });
 
       return {
         success: true,
-        principal,
-        reward: rewardToCredit,
+        reward,
       };
     }),
 });

@@ -20,38 +20,37 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
   Loader2,
-  Percent,
   Lock,
-  Clock,
+  Percent,
+  Coins,
   AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 
-type StakingPlan = {
+type Product = {
   id: number;
-  name: string;
   asset: string;
+  name: string;
   apr: number;
   lockDays: number;
   minAmount: number;
   maxAmount: number | null;
 };
 
-type UserStake = {
+type Position = {
   id: number;
-  planId: number;
+  userId: number;
+  productId: number;
   asset: string;
   amount: number;
   apr: number;
   lockDays: number;
-  startAt: string;
-  unlockAt: string;
-  claimedRewards: number;
+  startedAt: string;
+  closedAt: string | null;
   status: string;
+  accruedReward: number;
 };
 
 export default function Staking() {
@@ -60,86 +59,47 @@ export default function Staking() {
     redirectPath: getLoginUrl(),
   });
 
-  const plansQuery = trpc.staking.listPlans.useQuery();
-  const stakesQuery = trpc.staking.myStakes.useQuery(undefined, {
+  const productsQuery = trpc.staking.listProducts.useQuery();
+  const positionsQuery = trpc.staking.myPositions.useQuery(undefined, {
     enabled: isAuthenticated && !loading,
   });
 
-  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
-  const [amount, setAmount] = useState("100");
-
-  const createStakeMutation = trpc.staking.createStake.useMutation({
+  const stakeMutation = trpc.staking.stake.useMutation({
     onSuccess() {
-      stakesQuery.refetch();
-      setAmount("100");
+      positionsQuery.refetch();
+      setStakeAmount("");
+      setSelectedProductId(null);
     },
   });
 
-  const claimStakeMutation = trpc.staking.claimStake.useMutation({
+  const unstakeMutation = trpc.staking.unstake.useMutation({
     onSuccess() {
-      stakesQuery.refetch();
+      positionsQuery.refetch();
     },
   });
 
-  if (loading || plansQuery.isLoading) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <UserNav />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </div>
-    );
-  }
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [stakeAmount, setStakeAmount] = useState("");
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              Staking
-            </CardTitle>
-            <CardDescription>
-              You must be logged in to view and participate in staking.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button asChild className="w-full">
-              <a href={getLoginUrl()}>Go to login</a>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const products = (productsQuery.data ?? []) as Product[];
+  const positions = (positionsQuery.data ?? []) as Position[];
 
-  const plans = (plansQuery.data ?? []) as StakingPlan[];
-  const stakes = (stakesQuery.data ?? []) as UserStake[];
+  const selectedProduct = products.find((p) => p.id === selectedProductId) ?? null;
 
-  const now = new Date();
-
-  const handleCreateStake = (e: React.FormEvent) => {
+  const handleStakeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPlanId) return;
-    const amt = Number(amount);
-    if (!amt || amt <= 0) return;
+    if (!selectedProductId) return;
+    const amountNum = Number(stakeAmount);
+    if (!amountNum || amountNum <= 0) return;
 
-    createStakeMutation.mutate({
-      planId: selectedPlanId,
-      amount: amt,
+    stakeMutation.mutate({
+      productId: selectedProductId,
+      amount: amountNum,
     } as any);
   };
 
-  const handleClaim = (stakeId: number) => {
-    claimStakeMutation.mutate({ stakeId } as any);
-  };
-
-  const isStakeClaimable = (stake: UserStake) => {
-    if (stake.status !== "active") return false;
-    const unlockAt = new Date(stake.unlockAt);
-    return now.getTime() >= unlockAt.getTime();
+  const handleUnstake = (positionId: number) => {
+    unstakeMutation.mutate({ positionId } as any);
   };
 
   return (
@@ -153,222 +113,281 @@ export default function Staking() {
               Staking
             </h1>
             <p className="text-muted-foreground">
-              Lock your assets to earn passive rewards over time. APR is applied
-              linearly over the lock period.
+              Lock your assets to earn passive rewards with fixed APR products.
             </p>
           </div>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)]">
-          {/* Available plans */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Percent className="h-5 w-5" />
-                Available plans
-              </CardTitle>
-              <CardDescription>
-                Choose a plan and amount to create a new stake. Funds will be locked
-                until the end of the plan.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {plans.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No staking plans are currently available.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Plan</Label>
-                    <div className="space-y-2">
-                      {plans.map((p) => {
-                        const isSelected = selectedPlanId === p.id;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setSelectedPlanId(p.id)}
-                            className={[
-                              "w-full text-left border rounded-md p-3 text-sm transition-colors",
-                              isSelected
-                                ? "border-primary bg-primary/10"
-                                : "border-border hover:border-primary/60",
-                            ].join(" ")}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                <div className="font-medium">
-                                  {p.name}{" "}
-                                  <span className="text-xs text-muted-foreground">
-                                    ({p.asset})
-                                  </span>
-                                </div>
-                                <div className="text-xs text-muted-foreground space-x-2 mt-1">
-                                  <span className="inline-flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    {p.lockDays} days lock
-                                  </span>
-                                  <span>• Min {p.minAmount}</span>
-                                  {p.maxAmount && <span>• Max {p.maxAmount}</span>}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-lg font-semibold">
-                                  {(p.apr * 100).toFixed(2)}%
-                                </div>
-                                <div className="text-[11px] text-muted-foreground">
-                                  APR (yearly)
-                                </div>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleCreateStake} className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="amount">Amount</Label>
-                      <Input
-                        id="amount"
-                        type="number"
-                        min={0}
-                        step="0.00000001"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button
-                        type="submit"
-                        disabled={
-                          !selectedPlanId ||
-                          createStakeMutation.isPending ||
-                          !amount
-                        }
-                      >
-                        {createStakeMutation.isPending && (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        )}
-                        Start staking
-                      </Button>
-                    </div>
-                    {createStakeMutation.isError && (
-                      <div className="mt-1 flex items-start gap-2 text-xs text-destructive">
-                        <AlertCircle className="h-4 w-4 mt-0.5" />
-                        <p>
-                          Failed to create stake. Check your balance and plan
-                          requirements, then try again.
-                        </p>
-                      </div>
-                    )}
-                  </form>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* User stakes */}
+        {/* Products + stake form */}
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)]">
           <Card className="overflow-hidden">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Your stakes
-              </CardTitle>
+              <CardTitle>Staking products</CardTitle>
               <CardDescription>
-                Active and completed staking positions. Claimable stakes can be
-                withdrawn with rewards once unlocked.
+                Available staking offers. Select one to see details and stake.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {stakesQuery.isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              {productsQuery.isLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
-              ) : stakes.length === 0 ? (
+              ) : products.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  You don&apos;t have any staking positions yet.
+                  No staking products are available at the moment.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Asset</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>APR</TableHead>
-                        <TableHead>Lock</TableHead>
-                        <TableHead>Period</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">APR</TableHead>
+                        <TableHead className="text-right">Lock</TableHead>
+                        <TableHead className="text-right">Limits</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stakes.map((s) => {
-                        const unlockAt = new Date(s.unlockAt);
-                        const claimable = isStakeClaimable(s);
-
-                        return (
-                          <TableRow key={s.id}>
-                            <TableCell className="text-xs md:text-sm">
-                              {s.asset}
-                            </TableCell>
-                            <TableCell className="text-xs md:text-sm">
-                              {s.amount}
-                            </TableCell>
-                            <TableCell className="text-xs md:text-sm">
-                              {(s.apr * 100).toFixed(2)}%
-                            </TableCell>
-                            <TableCell className="text-xs md:text-sm">
-                              {s.lockDays} days
-                            </TableCell>
-                            <TableCell className="text-[11px] md:text-xs">
-                              {new Date(s.startAt).toLocaleDateString()} –{" "}
-                              {unlockAt.toLocaleDateString()}
-                            </TableCell>
-                            <TableCell className="text-xs md:text-xs">
-                              <Badge
-                                variant="outline"
-                                className={
-                                  s.status === "active"
-                                    ? "border-emerald-500 text-emerald-400"
-                                    : s.status === "claimed"
-                                    ? "border-primary text-primary"
-                                    : ""
-                                }
-                              >
-                                {s.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {claimable && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleClaim(s.id)}
-                                  disabled={claimStakeMutation.isPending}
-                                >
-                                  {claimStakeMutation.isPending ? (
-                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                  ) : (
-                                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                                  )}
-                                  Claim
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {products.map((p) => (
+                        <TableRow
+                          key={p.id}
+                          className={
+                            selectedProductId === p.id
+                              ? "bg-muted/40"
+                              : "hover:bg-muted/20 cursor-pointer"
+                          }
+                          onClick={() => setSelectedProductId(p.id)}
+                        >
+                          <TableCell className="text-xs md:text-sm">
+                            <div className="flex flex-col">
+                              <span className="font-semibold">
+                                {p.name}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                Asset: {p.asset}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            <span className="inline-flex items-center gap-1">
+                              <Percent className="h-3 w-3" />
+                              {p.apr.toFixed(2)}%
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            {p.lockDays === 0 ? "Flexible" : `${p.lockDays} days`}
+                          </TableCell>
+                          <TableCell className="text-[11px] md:text-xs text-right">
+                            Min: {p.minAmount} {p.asset}
+                            {p.maxAmount != null && (
+                              <>
+                                <br />
+                                Max: {p.maxAmount} {p.asset}
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant={
+                                selectedProductId === p.id ? "default" : "outline"
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedProductId(p.id);
+                              }}
+                            >
+                              Stake
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Stake</CardTitle>
+              <CardDescription>
+                Choose a product and amount. Funds will be locked in your wallet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!isAuthenticated ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    You must be logged in to stake assets.
+                  </p>
+                  <Button asChild className="w-full">
+                    <a href={getLoginUrl()}>Go to login</a>
+                  </Button>
+                </div>
+              ) : !selectedProduct ? (
+                <p className="text-sm text-muted-foreground">
+                  Select a staking product from the list to continue.
+                </p>
+              ) : (
+                <form onSubmit={handleStakeSubmit} className="space-y-4">
+                  <div className="space-y-1 text-sm">
+                    <div className="font-semibold">{selectedProduct.name}</div>
+                    <div className="text-muted-foreground text-xs">
+                      Asset: {selectedProduct.asset} · APR:{" "}
+                      {selectedProduct.apr.toFixed(2)}% · Lock:{" "}
+                      {selectedProduct.lockDays === 0
+                        ? "Flexible"
+                        : `${selectedProduct.lockDays} days`}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="amount">Amount ({selectedProduct.asset})</Label>
+                    <Input
+                      id="amount"
+                      type="number"
+                      min={0}
+                      step="0.00000001"
+                      value={stakeAmount}
+                      onChange={(e) => setStakeAmount(e.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Min: {selectedProduct.minAmount} {selectedProduct.asset}
+                      {selectedProduct.maxAmount != null &&
+                        ` · Max: ${selectedProduct.maxAmount} ${selectedProduct.asset}`}
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={
+                        stakeMutation.isPending || !stakeAmount || !selectedProductId
+                      }
+                    >
+                      {stakeMutation.isPending && (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      )}
+                      Confirm stake
+                    </Button>
+                  </div>
+                  {stakeMutation.isError && (
+                    <div className="mt-1 flex items-start gap-2 text-xs text-destructive">
+                      <AlertCircle className="h-4 w-4 mt-0.5" />
+                      <p>
+                        {(stakeMutation.error as any)?.message ||
+                          "Failed to create staking position. Please try again."}
+                      </p>
+                    </div>
+                  )}
+                </form>
+              )}
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Positions */}
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>My positions</CardTitle>
+            <CardDescription>
+              Active and closed staking positions with estimated rewards.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!isAuthenticated ? (
+              <p className="text-sm text-muted-foreground">
+                Login to view your staking positions.
+              </p>
+            ) : positionsQuery.isLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : positions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                You don&apos;t have any staking positions yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asset</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">APR</TableHead>
+                      <TableHead className="text-right">Lock</TableHead>
+                      <TableHead className="text-right">Started</TableHead>
+                      <TableHead className="text-right">Status</TableHead>
+                      <TableHead className="text-right">
+                        Est. reward
+                      </TableHead>
+                      <TableHead className="text-right"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {positions.map((p) => {
+                      const started = p.startedAt
+                        ? new Date(p.startedAt).toLocaleDateString()
+                        : "-";
+                      const reward =
+                        typeof p.accruedReward === "number"
+                          ? p.accruedReward
+                          : 0;
+
+                      const canUnstake = p.status === "active";
+
+                      return (
+                        <TableRow key={p.id}>
+                          <TableCell className="text-xs md:text-sm">
+                            {p.asset}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            {p.amount}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            {p.apr.toFixed(2)}%
+                          </TableCell>
+                          <TableCell className="text-[11px] md:text-xs text-right">
+                            {p.lockDays === 0
+                              ? "Flexible"
+                              : `${p.lockDays} days`}
+                          </TableCell>
+                          <TableCell className="text-[11px] md:text-xs text-right">
+                            {started}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-xs text-right capitalize">
+                            {p.status}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm text-right">
+                            {reward.toFixed(8)} {p.asset}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {canUnstake && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleUnstake(p.id)}
+                                disabled={unstakeMutation.isPending}
+                              >
+                                {unstakeMutation.isPending ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Coins className="h-3 w-3 mr-1" />
+                                )}
+                                Unstake
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
