@@ -21,6 +21,8 @@ import {
 } from "./kyc";
 import {
 import { sendWelcomeEmail } from "./email";
+import { recordLoginAttempt } from "./loginHistory";
+import { extractClientIp } from "./rateLimit";
   logInfo,
   logWarn,
   logError,
