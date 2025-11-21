@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 import { createSession, destroySession } from "./session";
-import { sendEmail } from "./email";
+import { sendEmail, sendLoginAlertEmail } from "./email";
 import { TRPCError } from "@trpc/server";
 import { authenticator } from "otplib";
 import {

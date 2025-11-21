@@ -135,3 +135,45 @@ function escapeHtml(input: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+
+export async function sendLoginAlertEmail(params: {
+  to: string;
+  ip: string;
+  userAgent: string;
+  createdAt: string;
+}) {
+  const subject = "New login to your BitChange account";
+  const text = `Hello,
+
+A new login to your BitChange account was detected.
+
+IP address: ${params.ip}
+Device / Browser: ${params.userAgent}
+Time: ${params.createdAt}
+
+If this was you, you can ignore this message.
+If you do not recognize this login, please change your password immediately and contact support.
+
+BitChange Security Team`;
+
+  const html = `
+    <h2>New login detected</h2>
+    <p>A new login to your <strong>BitChange</strong> account was detected.</p>
+    <ul>
+      <li><strong>IP address:</strong> ${escapeHtml(params.ip)}</li>
+      <li><strong>Device / Browser:</strong> ${escapeHtml(params.userAgent)}</li>
+      <li><strong>Time:</strong> ${escapeHtml(params.createdAt)}</li>
+    </ul>
+    <p>If this was you, you can ignore this message.</p>
+    <p>If you do not recognize this login, please change your password immediately and contact support.</p>
+    <p>Best regards,<br/>BitChange Security Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+}
