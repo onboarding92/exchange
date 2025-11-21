@@ -692,16 +692,6 @@ Built with industry-leading open-source technologies:
 
 ---
 
-## ⚠️ Legal Disclaimer
-
-This software is provided for educational and demonstration purposes. Operating a cryptocurrency exchange requires:
-
-- Compliance with local financial regulations
-- Proper licensing and registration
-- KYC/AML procedures
-- Security audits and insurance
-- Legal counsel
-
 **The authors and contributors are not responsible for any misuse of this software or any financial losses incurred.**
 
 ---
@@ -722,9 +712,3 @@ This software is provided for educational and demonstration purposes. Operating 
 | Audit Logging | ✅ | Comprehensive activity tracking |
 | Rate Limiting | ✅ | DDoS and brute force protection |
 | Session Management | ✅ | Secure HTTP-only cookies |
-
----
-
-**Built with ❤️ by the BitChange Team**
-
-*Professional cryptocurrency exchange platform for the modern web*
