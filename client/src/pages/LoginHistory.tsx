@@ -2,10 +2,68 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { UserNav } from "@/components/UserNav";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from "@/components/ui/table";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, Monitor, Globe2, AlertTriangle, Loader2, Clock } from "lucide-react";
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableRow,
+  TableBody,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  Loader2,
+  Shield,
+  AlertTriangle,
+  MonitorSmartphone,
+} from "lucide-react";
+
+type LoginHistoryRow = {
+  id: number;
+  userId: number | null;
+  email: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  method: string | null;
+  success: number;
+  createdAt: string;
+  metadataJson: string | null;
+};
+
+function parseDevice(userAgent: string | null): string {
+  if (!userAgent) return "Unknown device";
+
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("iphone")) return "iPhone";
+  if (ua.includes("ipad")) return "iPad";
+  if (ua.includes("android")) return "Android device";
+  if (ua.includes("mac os")) return "Mac";
+  if (ua.includes("windows")) return "Windows";
+  if (ua.includes("linux")) return "Linux";
+
+  return "Unknown device";
+}
+
+function parseBrowser(userAgent: string | null): string {
+  if (!userAgent) return "Unknown browser";
+
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("chrome") && !ua.includes("edge") && !ua.includes("opr"))
+    return "Chrome";
+  if (ua.includes("safari") && !ua.includes("chrome")) return "Safari";
+  if (ua.includes("firefox")) return "Firefox";
+  if (ua.includes("edg")) return "Edge";
+  if (ua.includes("opr") || ua.includes("opera")) return "Opera";
+
+  return "Unknown browser";
+}
 
 export default function LoginHistory() {
   const { isAuthenticated, loading } = useAuth({
@@ -13,11 +71,12 @@ export default function LoginHistory() {
     redirectPath: getLoginUrl(),
   });
 
-  const { data, isLoading, isError } = trpc.auth.loginHistory.useQuery(undefined, {
-    enabled: isAuthenticated && !loading,
-  });
+  const historyQuery = trpc.loginHistory.historyForUser.useQuery(
+    { limit: 50 } as any,
+    { enabled: isAuthenticated && !loading }
+  );
 
-  if (loading || isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex flex-col">
         <UserNav />
@@ -30,7 +89,7 @@ export default function LoginHistory() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -38,12 +97,12 @@ export default function LoginHistory() {
               Login history
             </CardTitle>
             <CardDescription>
-              You need to be logged in to view your recent login activity.
+              You must be logged in to view your login history.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <Button asChild className="w-full">
-              <a href={getLoginUrl()}>Go to Login</a>
+              <a href={getLoginUrl()}>Go to login</a>
             </Button>
           </CardContent>
         </Card>
@@ -51,99 +110,93 @@ export default function LoginHistory() {
     );
   }
 
-  const events = data ?? [];
+  const rows = (historyQuery.data ?? []) as LoginHistoryRow[];
 
   return (
     <div className="min-h-screen bg-background">
       <UserNav />
-      <main className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
-            <Monitor className="h-7 w-7" />
-            Login history
-          </h1>
-          <p className="text-muted-foreground">
-            Review recent sign-ins, including IP, device, and whether they appear suspicious.
-          </p>
-        </div>
+      <main className="container mx-auto px-4 py-8 max-w-6xl space-y-6">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
+              <MonitorSmartphone className="h-7 w-7" />
+              Login history
+            </h1>
+            <p className="text-muted-foreground">
+              Review recent logins and verify that all sessions are legitimate.
+            </p>
+          </div>
+        </header>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Last logins
-              </CardTitle>
-              <CardDescription>
-                Up to the last 20 successful logins for this account.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> Normal
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> Suspicious
-              </span>
-            </div>
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>Recent logins</CardTitle>
+            <CardDescription>
+              If you see an IP or device you don&apos;t recognize, change your password
+              and contact support.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {isError && (
-              <p className="text-sm text-destructive mb-4">
-                Failed to load login history. Please try again later.
-              </p>
-            )}
-
-            {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No login events recorded yet for this account.
-              </p>
+            {historyQuery.isLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <AlertTriangle className="h-4 w-4" />
+                <span>No login events recorded yet for this account.</span>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date &amp; Time</TableHead>
-                      <TableHead>IP address</TableHead>
-                      <TableHead>Device / Browser</TableHead>
-                      <TableHead className="text-right">Risk</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>IP</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Browser</TableHead>
+                      <TableHead>Method</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {events.map((e: any) => {
-                      const dateStr = new Date(e.createdAt).toLocaleString();
-                      const suspicious = e.isSuspicious === 1;
+                    {rows.map((r) => {
+                      const dateStr = r.createdAt
+                        ? new Date(r.createdAt).toLocaleString()
+                        : "-";
+                      const device = parseDevice(r.userAgent);
+                      const browser = parseBrowser(r.userAgent);
+                      const success = r.success === 1;
                       return (
-                        <TableRow key={e.id}>
-                          <TableCell className="whitespace-nowrap text-sm">
+                        <TableRow key={r.id}>
+                          <TableCell className="text-xs md:text-sm">
                             {dateStr}
                           </TableCell>
-                          <TableCell className="font-mono text-xs md:text-sm">
-                            <div className="flex items-center gap-2">
-                              <Globe2 className="h-4 w-4 text-muted-foreground" />
-                              <span>{e.ip}</span>
-                            </div>
+                          <TableCell className="text-xs md:text-sm">
+                            {r.ip || "Unknown"}
                           </TableCell>
-                          <TableCell className="text-xs md:text-sm max-w-xs">
-                            <div className="flex items-center gap-2">
-                              <Monitor className="h-4 w-4 text-muted-foreground" />
-                              <span className="truncate" title={e.userAgent}>
-                                {e.userAgent || "Unknown device"}
-                              </span>
-                            </div>
+                          <TableCell className="text-xs md:text-sm">
+                            {device}
                           </TableCell>
-                          <TableCell className="text-right">
-                            {suspicious ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-500">
-                                <AlertTriangle className="h-4 w-4" />
-                                Suspicious
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-500">
-                                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                                Normal
-                              </span>
-                            )}
+                          <TableCell className="text-xs md:text-sm">
+                            {browser}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {r.method || "Unknown"}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            <span
+                              className={
+                                success
+                                  ? "text-emerald-400"
+                                  : "text-red-400 flex items-center gap-1"
+                              }
+                            >
+                              {!success && (
+                                <AlertTriangle className="h-3 w-3" />
+                              )}
+                              {success ? "Success" : "Failed"}
+                            </span>
                           </TableCell>
                         </TableRow>
                       );

@@ -9,8 +9,10 @@ import { internalRouter } from "./routers.internal";
 import { supportRouter } from "./routers.support";
 import { adminRouter } from "./routers.admin";
 import { paymentRouter } from "./routers.payment";
+import { loginHistoryRouter } from "./routers.loginHistory";
 
 export const appRouter = router({
+  loginHistory: loginHistoryRouter,
   payment: paymentRouter,
   auth: authRouter,
   wallet: walletRouter,
