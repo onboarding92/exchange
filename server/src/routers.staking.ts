@@ -9,6 +9,8 @@ import {
 import { TRPCError } from "@trpc/server";
 import { logSecurity } from "./logger";
 import { idSchema, cryptoAmountSchema } from "./validation";
+import { logActivity } from "./activity";
+import { extractClientIp } from "./rateLimit";
 
 export const stakingRouter = router({
   // Public – list active staking products
@@ -37,6 +39,10 @@ export const stakingRouter = router({
     .mutation(({ ctx, input }) => {
       const user = ctx.user!;
       const now = new Date().toISOString();
+
+      const req = ctx.req as any;
+      const ip = extractClientIp(req);
+      const userAgent = req?.headers?.["user-agent"] ?? null;
 
       const product = db
         .prepare(
@@ -103,12 +109,10 @@ export const stakingRouter = router({
             lockDays: number,
             now: string
           ) => {
-            // deduct from wallet
             db.prepare(
               "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
             ).run(amount, userId, asset);
 
-            // create position
             const res = db
               .prepare(
                 `INSERT INTO stakingPositions
@@ -140,6 +144,28 @@ export const stakingRouter = router({
           asset: product.asset,
         });
 
+        // Activity log
+        try {
+          logActivity({
+            userId: user.id,
+            type: "staking_stake",
+            category: "staking",
+            description: `Staked ${input.amount} ${product.asset} in ${product.name}`,
+            metadata: {
+              positionId,
+              productId: product.id,
+              asset: product.asset,
+              amount: input.amount,
+              apr: product.apr,
+              lockDays: product.lockDays,
+            },
+            ip,
+            userAgent,
+          });
+        } catch (err) {
+          console.error("[activity] Failed to log staking stake activity:", err);
+        }
+
         return { success: true, positionId };
       } catch (err) {
         console.error("[staking] Failed to create staking position:", err);
@@ -160,6 +186,10 @@ export const stakingRouter = router({
     .mutation(({ ctx, input }) => {
       const user = ctx.user!;
       const now = new Date();
+
+      const req = ctx.req as any;
+      const ip = extractClientIp(req);
+      const userAgent = req?.headers?.["user-agent"] ?? null;
 
       const pos = db
         .prepare(
@@ -226,7 +256,6 @@ export const stakingRouter = router({
             rewardAmount: number,
             closedAtIso: string
           ) => {
-            // close position
             db.prepare(
               `UPDATE stakingPositions
                SET status = 'closed', closedAt = ?
@@ -235,7 +264,6 @@ export const stakingRouter = router({
 
             const totalReturn = principal + rewardAmount;
 
-            // credit wallet
             const existing = db
               .prepare(
                 "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
@@ -264,6 +292,26 @@ export const stakingRouter = router({
           principal: pos.amount,
           reward,
         });
+
+        // Activity log
+        try {
+          logActivity({
+            userId: user.id,
+            type: "staking_unstake",
+            category: "staking",
+            description: `Unstaked ${pos.amount} ${pos.asset} (reward: ${reward})`,
+            metadata: {
+              positionId: pos.id,
+              asset: pos.asset,
+              principal: pos.amount,
+              reward,
+            },
+            ip,
+            userAgent,
+          });
+        } catch (err) {
+          console.error("[activity] Failed to log staking unstake activity:", err);
+        }
 
         return {
           success: true,

@@ -10,6 +10,8 @@ import {
   cryptoAmountSchema,
   optionalStringSchema,
 } from "./validation";
+import { logActivity } from "./activity";
+import { extractClientIp } from "./rateLimit";
 
 export const internalTransferRouter = router({
   myTransfers: authedProcedure
@@ -39,12 +41,15 @@ export const internalTransferRouter = router({
       const user = ctx.user!;
       const now = new Date().toISOString();
 
+      const req = ctx.req as any;
+      const ip = extractClientIp(req);
+      const userAgent = req?.headers?.["user-agent"] ?? null;
+
       const recipientEmail = input.recipientEmail.trim().toLowerCase();
       const asset = input.asset.trim().toUpperCase();
       const amount = input.amount;
       const note = input.note ?? null;
 
-      // Basic sanity checks (some already enforced by schemas)
       if (!recipientEmail) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -59,7 +64,6 @@ export const internalTransferRouter = router({
         });
       }
 
-      // Look up recipient
       const recipient = db
         .prepare(
           "SELECT id, email FROM users WHERE lower(email) = lower(?)"
@@ -82,7 +86,6 @@ export const internalTransferRouter = router({
         });
       }
 
-      // Check sender balance
       const walletRow = db
         .prepare(
           "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
@@ -107,12 +110,10 @@ export const internalTransferRouter = router({
             now: string,
             note: string | null
           ) => {
-            // withdraw from sender
             db.prepare(
               "UPDATE wallets SET balance = balance - ? WHERE userId = ? AND asset = ?"
             ).run(amount, fromUserId, asset);
 
-            // credit receiver
             const existing = db
               .prepare(
                 "SELECT balance FROM wallets WHERE userId = ? AND asset = ?"
@@ -129,7 +130,6 @@ export const internalTransferRouter = router({
               ).run(toUserId, asset, amount);
             }
 
-            // record transfer
             const res = db
               .prepare(
                 `INSERT INTO internalTransfers
@@ -158,6 +158,27 @@ export const internalTransferRouter = router({
           asset,
           amount,
         });
+
+        // Activity log (user-facing / audit log)
+        try {
+          logActivity({
+            userId: user.id,
+            type: "internal_transfer",
+            category: "wallet",
+            description: `Sent ${amount} ${asset} to ${recipient.email}`,
+            metadata: {
+              transferId,
+              recipientEmail,
+              amount,
+              asset,
+              note,
+            },
+            ip,
+            userAgent,
+          });
+        } catch (err) {
+          console.error("[activity] Failed to log internal transfer activity:", err);
+        }
 
         return { success: true, transferId };
       } catch (err) {
