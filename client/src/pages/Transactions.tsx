@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { UserNav } from "@/components/UserNav";
+import { trpc } from "@/lib/trpc";
 import {
   Card,
   CardHeader,
@@ -27,13 +28,19 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
-import { Loader2, Filter } from "lucide-react";
+import { Loader2, Filter, AlertCircle } from "lucide-react";
 
-type TxType = "deposit" | "withdrawal" | "trade" | "transfer";
+type TxType =
+  | "deposit"
+  | "withdrawal"
+  | "trade"
+  | "transfer"
+  | "staking";
+
 type TxStatus = "pending" | "completed" | "failed";
 
 type TransactionRow = {
-  id: string;
+  id: string | number;
   createdAt: string;
   type: TxType;
   asset: string;
@@ -42,44 +49,75 @@ type TransactionRow = {
   reference: string;
 };
 
-const MOCK_TRANSACTIONS: TransactionRow[] = [
-  {
-    id: "tx_001",
-    createdAt: new Date().toISOString(),
-    type: "deposit",
-    asset: "USDT",
-    amount: 250,
-    status: "completed",
-    reference: "MoonPay #982133",
-  },
-  {
-    id: "tx_002",
-    createdAt: new Date(Date.now() - 3600 * 1000).toISOString(),
-    type: "withdrawal",
-    asset: "BTC",
-    amount: 0.005,
-    status: "pending",
-    reference: "To 1A1zP1... via cold wallet",
-  },
-  {
-    id: "tx_003",
-    createdAt: new Date(Date.now() - 86400 * 1000).toISOString(),
-    type: "trade",
-    asset: "ETH",
-    amount: 1.23,
-    status: "completed",
-    reference: "BUY ETH/USDT @ 3,100",
-  },
-  {
-    id: "tx_004",
-    createdAt: new Date(Date.now() - 2 * 86400 * 1000).toISOString(),
-    type: "transfer",
-    asset: "USDT",
-    amount: 50,
-    status: "completed",
-    reference: "Internal transfer to demo@bitchange.money",
-  },
-];
+type ActivityLogRow = {
+  id: number;
+  userId: number | null;
+  type: string;
+  category: string;
+  description: string;
+  metadataJson: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+function mapActivityToTransactions(rows: ActivityLogRow[]): TransactionRow[] {
+  const result: TransactionRow[] = [];
+
+  for (const row of rows) {
+    let meta: any = {};
+    if (row.metadataJson) {
+      try {
+        meta = JSON.parse(row.metadataJson);
+      } catch {
+        meta = {};
+      }
+    }
+
+    // Default mapping
+    let type: TxType = "trade";
+    let asset = meta.asset ?? "N/A";
+    let amount = typeof meta.amount === "number" ? meta.amount : 0;
+    let reference = row.description || "";
+    const status: TxStatus = "completed"; // activity is logged only on success for now
+
+    if (row.type === "internal_transfer") {
+      type = "transfer";
+      asset = meta.asset ?? "N/A";
+      amount = typeof meta.amount === "number" ? meta.amount : 0;
+      reference =
+        meta.recipientEmail
+          ? `To ${meta.recipientEmail}${meta.note ? ` – ${meta.note}` : ""}`
+          : row.description || "Internal transfer";
+    } else if (row.type === "staking_stake") {
+      type = "staking";
+      asset = meta.asset ?? "N/A";
+      amount = typeof meta.amount === "number" ? meta.amount : 0;
+      reference = `Staked in ${meta.productId ? `product #${meta.productId}` : "staking product"}`;
+    } else if (row.type === "staking_unstake") {
+      type = "staking";
+      asset = meta.asset ?? "N/A";
+      amount = typeof meta.principal === "number" ? meta.principal : 0;
+      reference = `Unstaked (reward: ${meta.reward ?? 0})`;
+    }
+
+    result.push({
+      id: row.id,
+      createdAt: row.createdAt,
+      type,
+      asset,
+      amount,
+      status,
+      reference,
+    });
+  }
+
+  // newest first
+  return result.sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
 
 export default function Transactions() {
   const { isAuthenticated, loading } = useAuth({
@@ -92,6 +130,11 @@ export default function Transactions() {
   const [assetFilter, setAssetFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const activityQuery = trpc.activity.myActivity.useQuery(
+    { limit: 200 } as any,
+    { enabled: isAuthenticated && !loading }
+  );
 
   if (loading) {
     return (
@@ -124,10 +167,20 @@ export default function Transactions() {
     );
   }
 
-  const filtered = MOCK_TRANSACTIONS.filter((tx) => {
+  const activityRows = (activityQuery.data ?? []) as ActivityLogRow[];
+
+  const allTx: TransactionRow[] = useMemo(
+    () => mapActivityToTransactions(activityRows),
+    [activityRows]
+  );
+
+  const filtered = allTx.filter((tx) => {
     if (typeFilter !== "all" && tx.type !== typeFilter) return false;
     if (statusFilter !== "all" && tx.status !== statusFilter) return false;
-    if (assetFilter && !tx.asset.toUpperCase().includes(assetFilter.toUpperCase())) {
+    if (
+      assetFilter &&
+      !tx.asset.toUpperCase().includes(assetFilter.toUpperCase())
+    ) {
       return false;
     }
 
@@ -140,8 +193,9 @@ export default function Transactions() {
     if (dateTo) {
       const toDate = new Date(dateTo);
       const txDate = new Date(tx.createdAt);
-      // include transactions on that day
-      if (txDate > new Date(toDate.getTime() + 24 * 60 * 60 * 1000)) return false;
+      if (txDate > new Date(toDate.getTime() + 24 * 60 * 60 * 1000)) {
+        return false;
+      }
     }
 
     return true;
@@ -155,7 +209,8 @@ export default function Transactions() {
           <div>
             <h1 className="text-3xl font-bold mb-1">Transaction history</h1>
             <p className="text-muted-foreground">
-              View your deposits, withdrawals, internal transfers and trades in one place.
+              View your deposits, withdrawals, internal transfers, staking and
+              trading-related actions in one place.
             </p>
           </div>
         </header>
@@ -172,8 +227,8 @@ export default function Transactions() {
               </CardDescription>
             </div>
             <p className="text-[11px] text-muted-foreground max-w-md">
-              <strong>Note:</strong> This page is wired with placeholder data for now. 
-              Backend integration with real transaction logs will be added next.
+              This table is powered by your activity log (wallet &amp; staking
+              operations). More event types will be added as we expand the platform.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -193,6 +248,7 @@ export default function Transactions() {
                     <SelectItem value="withdrawal">Withdrawal</SelectItem>
                     <SelectItem value="trade">Trade</SelectItem>
                     <SelectItem value="transfer">Internal transfer</SelectItem>
+                    <SelectItem value="staking">Staking</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -213,6 +269,9 @@ export default function Transactions() {
                     <SelectItem value="failed">Failed</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Activity entries currently represent completed actions.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -254,7 +313,18 @@ export default function Transactions() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {filtered.length === 0 ? (
+            {activityQuery.isLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : activityQuery.isError ? (
+              <div className="flex items-start gap-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 mt-0.5" />
+                <p>
+                  Failed to load transaction history. Please try again later.
+                </p>
+              </div>
+            ) : filtered.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No transactions match the current filters.
               </p>
