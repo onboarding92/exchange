@@ -1,123 +1,156 @@
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import { config } from "./config";
 
-export type SendEmailOptions = {
-  to: string;
-  subject: string;
-  text?: string;
-  html?: string;
-};
+export function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = process.env.SMTP_PORT
-  ? parseInt(process.env.SMTP_PORT, 10)
-  : 587;
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_FROM = process.env.SMTP_FROM || "no-reply@bitchange.money";
-const SMTP_SECURE =
-  process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465";
+let cachedTransporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo> | null =
+  null;
 
-const EMAIL_ENABLED =
-  !!SMTP_HOST && !!SMTP_USER && !!SMTP_PASS && !!SMTP_FROM;
+function getTransporter():
+  | nodemailer.Transporter<SMTPTransport.SentMessageInfo>
+  | null {
+  // Se non ho i dati SMTP, disattivo le email (ma non butto giù il server)
+  const host = config.SMTP_HOST || process.env.SMTP_HOST;
+  const port =
+    config.SMTP_PORT ??
+    (process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : undefined);
+  const user = config.SMTP_USER || process.env.SMTP_USER;
+  const pass = config.SMTP_PASS || process.env.SMTP_PASS;
+  const secure =
+    typeof config.SMTP_SECURE === "boolean"
+      ? config.SMTP_SECURE
+      : process.env.SMTP_SECURE === "true";
 
-let transporter: nodemailer.Transporter | null = null;
+  if (!host || !port || !user || !pass) {
+    // Email disabilitate in questo ambiente
+    console.warn(
+      "[email] SMTP not configured (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS missing). Emails will not be sent."
+    );
+    return null;
+  }
 
-if (EMAIL_ENABLED) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
+  if (cachedTransporter) {
+    return cachedTransporter;
+  }
+
+  cachedTransporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: secure ?? false,
     auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
+      user,
+      pass,
     },
   });
 
-  transporter
-    .verify()
-    .then(() => {
-      console.log("[email] SMTP connection verified");
-    })
-    .catch((err) => {
-      console.error("[email] SMTP verification failed:", err);
-    });
-} else {
-  console.log(
-    "[email] SMTP not configured. Emails are disabled. Set SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_FROM to enable."
-  );
+  return cachedTransporter;
 }
 
-export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
-  if (!EMAIL_ENABLED || !transporter) {
+type SendEmailParams = {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+};
+
+/**
+ * Funzione base per inviare email.
+ * Se SMTP non è configurato, logga e ritorna senza lanciare errori.
+ */
+export async function sendEmail(params: SendEmailParams): Promise<void> {
+  const transporter = getTransporter();
+  if (!transporter) {
     console.log(
-      "[email] Skipping sendEmail because SMTP is not configured.",
-      { to: opts.to, subject: opts.subject }
+      "[email] Email sending skipped (no SMTP config). Intended email:",
+      {
+        to: params.to,
+        subject: params.subject,
+      }
     );
-    return false;
+    return;
   }
+
+  const from =
+    config.SMTP_FROM ||
+    process.env.SMTP_FROM ||
+    'BitChange <no-reply@bitchange.money>';
 
   try {
     await transporter.sendMail({
-      from: SMTP_FROM,
-      to: opts.to,
-      subject: opts.subject,
-      text: opts.text,
-      html: opts.html,
+      from,
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      html: params.html ?? params.text,
     });
-    return true;
   } catch (err) {
-    console.error("[email] Failed to send email:", err, {
-      to: opts.to,
-      subject: opts.subject,
-    });
-    return false;
+    console.error("[email] Failed to send email:", err);
+    // NON rilanciamo errore, per non rompere il flusso applicativo
   }
 }
 
-// ---- Helpers for specific events ----
-
+/**
+ * Email di benvenuto per nuovi utenti
+ */
 export async function sendWelcomeEmail(to: string) {
-  const subject = "Welcome to BitChange Exchange";
+  const subject = "Welcome to BitChange";
   const text = `Welcome to BitChange!
 
 Your account has been created successfully.
 
-If this signup was not made by you, please contact support immediately.
+If you did not create this account, please contact support immediately.
 
 BitChange Team`;
 
   const html = `
-    <h2>Welcome to <strong>BitChange</strong> 👋</h2>
+    <h2>Welcome to BitChange 👋</h2>
     <p>Your account has been created successfully.</p>
-    <p>If this signup was not made by you, please contact support immediately.</p>
+    <p>If you did not create this account, please contact support immediately.</p>
     <p>Best regards,<br/>BitChange Team</p>
   `;
 
-  return sendEmail({ to, subject, text, html });
+  return sendEmail({
+    to,
+    subject,
+    text,
+    html,
+  });
 }
 
+/**
+ * Email per risposta supporto
+ */
 export async function sendSupportReplyEmail(params: {
   to: string;
-  ticketId: number;
-  subject: string;
-  replySnippet: string;
+  ticketId: number | string;
+  message: string;
 }) {
-  const subject = `New reply on your support ticket #${params.ticketId}`;
+  const subject = `Support reply (Ticket #${params.ticketId})`;
   const text = `Hello,
 
-Our support team has replied to your ticket #${params.ticketId}:
+We have replied to your support ticket #${params.ticketId}:
 
-"${params.replySnippet}"
+${params.message}
 
-Please log in to your BitChange account to view the full conversation.
+If you did not open this request or need further help, please reply to this email.
 
 BitChange Support Team`;
 
   const html = `
-    <h2>New reply from <strong>BitChange Support</strong></h2>
-    <p>Your ticket <strong>#${params.ticketId}</strong> has a new reply:</p>
-    <blockquote>${escapeHtml(params.replySnippet)}</blockquote>
-    <p>Please log in to your BitChange account to view the full conversation.</p>
+    <h2>Support reply</h2>
+    <p>We have replied to your support ticket <strong>#${escapeHtml(
+      String(params.ticketId)
+    )}</strong>:</p>
+    <p>${escapeHtml(params.message)}</p>
+    <p>If you did not open this request or need further help, please reply to this email.</p>
     <p>Best regards,<br/>BitChange Support Team</p>
   `;
 
@@ -129,14 +162,9 @@ BitChange Support Team`;
   });
 }
 
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-
+/**
+ * Alert per nuovo login (nuovo IP / device)
+ */
 export async function sendLoginAlertEmail(params: {
   to: string;
   ip: string;
@@ -162,7 +190,9 @@ BitChange Security Team`;
     <p>A new login to your <strong>BitChange</strong> account was detected.</p>
     <ul>
       <li><strong>IP address:</strong> ${escapeHtml(params.ip)}</li>
-      <li><strong>Device / Browser:</strong> ${escapeHtml(params.userAgent)}</li>
+      <li><strong>Device / Browser:</strong> ${escapeHtml(
+        params.userAgent
+      )}</li>
       <li><strong>Time:</strong> ${escapeHtml(params.createdAt)}</li>
     </ul>
     <p>If this was you, you can ignore this message.</p>
@@ -178,7 +208,9 @@ BitChange Security Team`;
   });
 }
 
-
+/**
+ * Email: ricevuta richiesta di prelievo
+ */
 export async function sendWithdrawalRequestEmail(params: {
   to: string;
   asset: string;
@@ -206,7 +238,9 @@ BitChange Security Team`;
     <ul>
       <li><strong>Asset:</strong> ${escapeHtml(params.asset)}</li>
       <li><strong>Amount:</strong> ${escapeHtml(String(params.amount))}</li>
-      <li><strong>Destination address:</strong> ${escapeHtml(params.address)}</li>
+      <li><strong>Destination address:</strong> ${escapeHtml(
+        params.address
+      )}</li>
     </ul>
     <p>We will process this request according to our standard verification and security checks.</p>
     <p>If you did not initiate this withdrawal, please change your password immediately and contact support.</p>
@@ -221,6 +255,9 @@ BitChange Security Team`;
   });
 }
 
+/**
+ * Email: aggiornamento stato prelievo (approved / rejected / pending)
+ */
 export async function sendWithdrawalStatusEmail(params: {
   to: string;
   asset: string;
@@ -236,8 +273,9 @@ Your withdrawal request has been ${params.status}.
 
 Asset: ${params.asset}
 Amount: ${params.amount}
-${params.txId ? `Transaction ID: ${params.txId}` : ""}
-${params.reason ? `Reason: ${params.reason}` : ""}
+${params.txId ? `Transaction ID: ${params.txId}\n` : ""}${
+    params.reason ? `Reason: ${params.reason}\n` : ""
+  }
 
 If you do not recognize this action, please contact support immediately.
 
@@ -274,6 +312,9 @@ BitChange Security Team`;
   });
 }
 
+/**
+ * Email: aggiornamento stato KYC (approved / rejected)
+ */
 export async function sendKycStatusEmail(params: {
   to: string;
   status: "approved" | "rejected";
