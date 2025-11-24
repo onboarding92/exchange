@@ -12,8 +12,20 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, ShieldCheck, Activity, AlertCircle } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Loader2,
+  ShieldCheck,
+  Activity as ActivityIcon,
+  AlertCircle,
+} from "lucide-react";
 
 type ActivityLogRow = {
   id: number;
@@ -36,24 +48,71 @@ type SecurityEvent = {
   severity: "info" | "warning";
 };
 
+function parseMetadata(row: ActivityLogRow): any | null {
+  if (!row.metadataJson) return null;
+  try {
+    return JSON.parse(row.metadataJson);
+  } catch {
+    return null;
+  }
+}
+
 function mapToSecurityEvents(rows: ActivityLogRow[]): SecurityEvent[] {
   const result: SecurityEvent[] = [];
 
   for (const row of rows) {
-    let severity: "info" | "warning" = "info";
+    const meta = parseMetadata(row);
 
-    if (row.category === "security") {
-      if (row.type === "kyc_status_update") {
-        severity = "info";
+    // di base: info
+    let severity: "info" | "warning" = "info";
+    let label = row.description || row.type;
+
+    switch (row.type) {
+      case "login": {
+        label = "Successful login";
+        break;
+      }
+      case "withdrawal_request": {
+        const asset = meta?.asset ?? "Unknown asset";
+        const amount =
+          meta?.amount !== undefined ? String(meta.amount) : "unknown amount";
+        label = `Withdrawal request: ${asset} ${amount}`;
+        break;
+      }
+      case "withdrawal_status_update": {
+        const status = (meta?.status as string | undefined) ?? row.description;
+        const asset = meta?.asset ?? "Unknown asset";
+        const amount =
+          meta?.amount !== undefined ? String(meta.amount) : "unknown amount";
+
+        if (status === "approved") {
+          label = `Withdrawal APPROVED: ${asset} ${amount}`;
+          severity = "info";
+        } else if (status === "rejected") {
+          label = `Withdrawal REJECTED: ${asset} ${amount}`;
+          severity = "warning";
+        } else {
+          label = `Withdrawal status changed: ${asset} ${amount} (${status})`;
+        }
+        break;
+      }
+      case "kyc_status_update": {
+        const status = (meta?.status as string | undefined) ?? row.description;
+        if (status === "approved") {
+          label = "KYC approved";
+        } else if (status === "rejected") {
+          label = "KYC rejected";
+          severity = "warning";
+        } else {
+          label = `KYC status changed (${status})`;
+        }
+        break;
+      }
+      default: {
+        // altri eventi (internal_transfer, staking, ecc.) rimangono come description
+        break;
       }
     }
-
-    if (row.type === "internal_transfer") {
-      severity = "info";
-    }
-
-    // In futuro: altri tipi (login, 2fa, password change, ecc.)
-    const label = row.description || row.type;
 
     result.push({
       id: row.id,
@@ -67,8 +126,7 @@ function mapToSecurityEvents(rows: ActivityLogRow[]): SecurityEvent[] {
 
   // ordina per data decrescente
   return result.sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
 
@@ -133,12 +191,17 @@ export default function SecurityCenter() {
               Security center
             </h1>
             <p className="text-muted-foreground">
-              Overview of your account security and recent sensitive activity.
+              Overview of your account security and recent high-risk activity.
             </p>
           </div>
           <div className="flex flex-col items-start md:items-end gap-1 text-xs text-muted-foreground">
-            <span>Logged in as: <span className="font-medium">{user?.email}</span></span>
-            <span>Account ID: <span className="font-mono">{user?.id}</span></span>
+            <span>
+              Logged in as:{" "}
+              <span className="font-medium">{user?.email}</span>
+            </span>
+            <span>
+              Account ID: <span className="font-mono">{user?.id}</span>
+            </span>
           </div>
         </header>
 
@@ -159,8 +222,9 @@ export default function SecurityCenter() {
                 Protected
               </Badge>
               <p className="mt-2 text-xs text-muted-foreground">
-                No critical security events detected in the recent activity log.
-                Keep 2FA enabled and monitor this page regularly.
+                No critical issues detected in the recent activity log. Keep 2FA
+                enabled and monitor this page when you see unusual withdrawals
+                or KYC changes.
               </p>
             </CardContent>
           </Card>
@@ -168,7 +232,7 @@ export default function SecurityCenter() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Activity className="h-4 w-4" />
+                <ActivityIcon className="h-4 w-4" />
                 Last security event
               </CardTitle>
               <CardDescription className="text-xs">
@@ -213,13 +277,14 @@ export default function SecurityCenter() {
             </CardHeader>
             <CardContent className="space-y-1">
               <p className="text-xs">
-                • Enable 2FA for login and withdrawals.
+                • Keep 2FA enabled for both login and withdrawals.
               </p>
               <p className="text-xs">
-                • Review unusual transfers and staking operations.
+                • Review withdrawal events and KYC changes regularly.
               </p>
               <p className="text-xs">
-                • Never share your 2FA codes or recovery phrases.
+                • If you see withdrawals or logins you don&apos;t recognize,
+                change your password and contact support.
               </p>
             </CardContent>
           </Card>
@@ -229,12 +294,12 @@ export default function SecurityCenter() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
+              <ActivityIcon className="h-4 w-4" />
               Recent security-related activity
             </CardTitle>
             <CardDescription>
-              KYC changes, internal transfers, and other sensitive operations
-              linked to your account.
+              Logins, KYC updates and withdrawal operations linked to your
+              account.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -265,11 +330,17 @@ export default function SecurityCenter() {
                   </TableHeader>
                   <TableBody>
                     {securityEvents.map((ev) => {
-                      const dateStr = new Date(ev.createdAt).toLocaleString();
+                      const dateStr = new Date(
+                        ev.createdAt
+                      ).toLocaleString();
                       return (
                         <TableRow key={ev.id}>
-                          <TableCell className="text-xs">{dateStr}</TableCell>
-                          <TableCell className="text-xs">{ev.label}</TableCell>
+                          <TableCell className="text-xs">
+                            {dateStr}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {ev.label}
+                          </TableCell>
                           <TableCell className="text-xs">
                             {ev.ip ?? "—"}
                           </TableCell>
