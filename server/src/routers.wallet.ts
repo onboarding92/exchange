@@ -6,6 +6,9 @@ import { authenticator } from "otplib";
 import { getTwoFactor } from "./twoFactor";
 import { logInfo, logWarn, logSecurity } from "./logger";
 import { getUsdPrices } from "./marketPrices";
+import { sendWithdrawalRequestEmail } from "./email";
+import { logActivity } from "./activity";
+import { extractClientIp } from "./rateLimit";
 
 const assetSchema = z
   .string()
@@ -169,6 +172,53 @@ export const walletRouter = router({
         "pending",
         now
       );
+      // Email + activity log for withdrawal request
+      try {
+        const lastWd = db
+          .prepare(
+            "SELECT id, asset, amount, address FROM withdrawals WHERE userId=? ORDER BY createdAt DESC LIMIT 1"
+          )
+          .get(ctx.user!.id) as
+          | { id: number; asset: string; amount: number; address: string }
+          | undefined;
+
+        const req = ctx.req as any;
+        const ip = extractClientIp(req);
+        const userAgent =
+          typeof req?.headers?.["user-agent"] === "string"
+            ? req.headers["user-agent"]
+            : null;
+
+        if (ctx.user?.email && lastWd) {
+          void sendWithdrawalRequestEmail({
+            to: ctx.user.email,
+            asset: lastWd.asset,
+            amount: lastWd.amount,
+            address: lastWd.address,
+            requestId: lastWd.id,
+          });
+        }
+
+        if (lastWd) {
+          logActivity({
+            userId: ctx.user!.id,
+            type: "withdrawal_request",
+            category: "wallet",
+            description: `Withdrawal request ${lastWd.asset} ${lastWd.amount}`,
+            metadata: {
+              withdrawalId: lastWd.id,
+              asset: lastWd.asset,
+              amount: lastWd.amount,
+              address: lastWd.address,
+            },
+            ip,
+            userAgent,
+          });
+        }
+      } catch (err) {
+        console.error("[activity] Failed to handle withdrawal request activity:", err);
+      }
+
 
       logSecurity("Withdrawal request created", {
         userId: ctx.user!.id,

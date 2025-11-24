@@ -34,6 +34,7 @@ import {
   logSecurity,
   getRecentLogs,
 } from "./logger";
+import { logActivity } from "./activity";
 
 type AttemptInfo = {
   count: number;
@@ -200,6 +201,36 @@ export const authRouter = router({
       clearAttempts(loginFailures, key);
 
       const token = createSession(row.id, row.email, row.role);
+
+      const loginTimeIso = new Date().toISOString();
+
+      // Invia email di alert per il nuovo login
+      void sendLoginAlertEmail({
+        to: row.email,
+        ip,
+        userAgent,
+        createdAt: loginTimeIso,
+      });
+
+      // Activity log per login riuscito
+      try {
+        logActivity({
+          userId: row.id,
+          type: "login",
+          category: "security",
+          description: "User login",
+          metadata: {
+            email: row.email,
+            ip,
+            userAgent,
+          },
+          ip,
+          userAgent,
+        });
+      } catch (err) {
+        console.error("[activity] Failed to log login activity:", err);
+      }
+
       ctx.res.cookie("session", token, { httpOnly: true, sameSite: "lax" });
 
       // Record login event
