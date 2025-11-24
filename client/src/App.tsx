@@ -27,6 +27,7 @@ import AdminLogs from "./pages/AdminLogs";
 import AdminPayments from "./pages/AdminPayments";
 import AdminPromos from "./pages/AdminPromos";
 import AdminSupport from "./pages/AdminSupport";
+import SecurityCenter from "@/pages/SecurityCenter";
 
 function Router() {
   return (

@@ -3,7 +3,6 @@ import { z } from "zod";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 import { createSession, destroySession } from "./session";
-import { sendEmail, sendLoginAlertEmail, sendWelcomeEmail } from "./email";
 import { TRPCError } from "@trpc/server";
 import { authenticator } from "otplib";
 import {
@@ -20,9 +19,9 @@ import {
   reviewKycForUser,
 } from "./kyc";
 import {
-import { sendWelcomeEmail } from "./email";
 import { recordLoginAttempt } from "./loginHistory";
 import { extractClientIp } from "./rateLimit";
+import { sendWelcomeEmail, sendSupportReplyEmail, sendLoginAlertEmail, sendWithdrawalRequestEmail, sendWithdrawalStatusEmail, sendKycStatusEmail } from "./email";
   logInfo,
   logWarn,
   logError,
