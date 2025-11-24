@@ -18,10 +18,16 @@ import {
   getPendingKycSubmissions,
   reviewKycForUser,
 } from "./kyc";
-import {
 import { recordLoginAttempt } from "./loginHistory";
-import { extractClientIp } from "./rateLimit";
-import { sendWelcomeEmail, sendSupportReplyEmail, sendLoginAlertEmail, sendWithdrawalRequestEmail, sendWithdrawalStatusEmail, sendKycStatusEmail } from "./email";
+import {
+  sendWelcomeEmail,
+  sendSupportReplyEmail,
+  sendLoginAlertEmail,
+  sendWithdrawalRequestEmail,
+  sendWithdrawalStatusEmail,
+  sendKycStatusEmail,
+} from "./email";
+import {
   logInfo,
   logWarn,
   logError,
@@ -103,11 +109,7 @@ export const authRouter = router({
           )
           .run(input.email, hash, "user", "unverified", now, now);
 
-        await sendEmail(
-          input.email,
-          "Welcome to BitChange",
-          "Your account has been created successfully."
-        );
+        await sendWelcomeEmail(input.email);
 
         logInfo("User registered", { userId: res.lastInsertRowid, email: input.email, ip });
 
