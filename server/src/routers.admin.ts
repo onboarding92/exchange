@@ -1,11 +1,125 @@
-import { router, adminProcedure } from "./trpc";
+import { adminProcedure, authedProcedure, router } from "./trpc";
 import { db } from "./db";
-import { sendEmail } from "./email";
+import { sendEmail, sendKycStatusEmail } from "./email";
 import { adminListDeposits } from "./adminDeposits";
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { logActivity } from "./activity";
+import { extractClientIp } from "./rateLimit";
 
 export const adminRouter = router({
 
-  // List deposits (with provider info) for admins
+  
+  updateKycStatus: authedProcedure
+    .input(
+      z.object({
+        kycId: z.number().int().positive(),
+        status: z.enum(["approved", "rejected"]),
+        reason: z.string().optional(),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      const admin = ctx.user;
+      if (!admin || (admin as any).role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin privileges required." });
+      }
+
+      const now = new Date().toISOString();
+
+      // Controllo esistenza richiesta
+      const existing = db
+        .prepare(
+          `SELECT id, userId, status, rejectionReason
+           FROM kycRequests
+           WHERE id = ?`
+        )
+        .get(input.kycId) as
+        | {
+            id: number;
+            userId: number;
+            status: string;
+            rejectionReason: string | null;
+          }
+        | undefined;
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "KYC request not found.",
+        });
+      }
+
+      // Aggiorna richiesta KYC
+      db.prepare(
+        `UPDATE kycRequests
+         SET status = ?, rejectionReason = ?, reviewedAt = ?, reviewerId = ?
+         WHERE id = ?`
+      ).run(
+        input.status,
+        input.status === "rejected" ? input.reason ?? null : null,
+        now,
+        admin.id,
+        input.kycId
+      );
+
+      // Ricarica richiesta + email utente
+      const request = db
+        .prepare(
+          `SELECT kr.id, kr.userId, kr.status, kr.rejectionReason,
+                  u.email
+           FROM kycRequests kr
+           JOIN users u ON u.id = kr.userId
+           WHERE kr.id = ?`
+        )
+        .get(input.kycId) as
+        | {
+            id: number;
+            userId: number;
+            status: string;
+            rejectionReason: string | null;
+            email: string;
+          }
+        | undefined;
+
+      if (request && request.email) {
+        // invia email stato KYC
+        void sendKycStatusEmail({
+          to: request.email,
+          status: input.status === "approved" ? "approved" : "rejected",
+          reason: input.reason ?? request.rejectionReason ?? null,
+        });
+
+        // log activity (audit)
+        const req = ctx.req as any;
+        const ip = extractClientIp(req);
+        const userAgent = req?.headers?.["user-agent"] ?? null;
+
+        try {
+          logActivity({
+            userId: request.userId,
+            type: "kyc_status_update",
+            category: "security",
+            description:
+              input.status === "approved"
+                ? "KYC approved by admin"
+                : "KYC rejected by admin",
+            metadata: {
+              kycId: request.id,
+              status: input.status,
+              reason: input.reason ?? request.rejectionReason ?? null,
+              adminId: admin.id,
+            },
+            ip,
+            userAgent,
+          });
+        } catch (err) {
+          console.error("[activity] Failed to log KYC status update:", err);
+        }
+      }
+
+      return { success: true };
+    }),
+// List deposits (with provider info) for admins
   listDeposits: authedProcedure
     .input(
       z
