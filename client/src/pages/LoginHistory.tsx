@@ -1,172 +1,99 @@
-import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
-import { trpc } from "@/lib/trpc";
-import { UserNav } from "@/components/UserNav";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Loader2, LogIn, AlertCircle } from "lucide-react";
+import React from "react";
+import { trpc } from "@/trpc";
+import { format } from "date-fns";
 
-type LoginHistoryRow = {
-  id?: number | string;
-  createdAt?: string;
-  ip?: string | null;
-  userAgent?: string | null;
-  success?: boolean;
-  location?: string | null;
-};
+export default function LoginHistoryPage() {
+  const { data, isLoading, isError } = trpc.auth.loginHistory.useQuery();
 
-export default function LoginHistory() {
-  const { isAuthenticated, loading } = useAuth({
-    redirectOnUnauthenticated: false,
-    redirectPath: getLoginUrl(),
-  });
-
-  const loginHistoryQuery = trpc.auth.loginHistory.useQuery(
-    undefined,
-    {
-      enabled: isAuthenticated && !loading,
-    }
-  );
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <UserNav />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+      <div className="p-6 text-gray-200">
+        <h1 className="text-2xl font-semibold mb-4">Login history</h1>
+        <p>Loading recent logins...</p>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
+  if (isError || !data) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardHeader>
-            <CardTitle>Login history</CardTitle>
-            <CardDescription>
-              You need to be logged in to view your login history.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button asChild className="w-full">
-              <a href={getLoginUrl()}>Go to login</a>
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="p-6 text-gray-200">
+        <h1 className="text-2xl font-semibold mb-4">Login history</h1>
+        <p className="text-red-400">
+          Could not load login history. Please try again later.
+        </p>
       </div>
     );
   }
 
-  const rows = (loginHistoryQuery.data ?? []) as LoginHistoryRow[];
+  if (data.length === 0) {
+    return (
+      <div className="p-6 text-gray-200">
+        <h1 className="text-2xl font-semibold mb-4">Login history</h1>
+        <p className="text-gray-400">No login events found for your account.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <UserNav />
-      <main className="container mx-auto px-4 py-8 max-w-5xl space-y-6">
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold mb-1 flex items-center gap-2">
-              <LogIn className="h-7 w-7" />
-              Login history
-            </h1>
-            <p className="text-muted-foreground">
-              Recent logins to your account, including IP address and device information.
-            </p>
-          </div>
-        </header>
+    <div className="p-6 text-gray-200">
+      <h1 className="text-2xl font-semibold mb-4">Login history</h1>
+      <p className="text-sm text-gray-400 mb-4">
+        These are the most recent sign-ins to your BitChange account. If you
+        see a device, browser or IP address that you don&apos;t recognize,
+        change your password immediately and contact support.
+      </p>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent logins</CardTitle>
-            <CardDescription>
-              Successful and failed login attempts associated with your account.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loginHistoryQuery.isLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              </div>
-            ) : loginHistoryQuery.isError ? (
-              <div className="flex items-start gap-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4 mt-0.5" />
-                <p>Failed to load login history. Please try again later.</p>
-              </div>
-            ) : rows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No login attempts recorded yet.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>IP</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Device</TableHead>
-                      <TableHead>Result</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((row, idx) => {
-                      const createdAt = row.createdAt
-                        ? new Date(row.createdAt).toLocaleString()
-                        : "Unknown";
-
-                      const key = String(row.id ?? idx);
-
-                      return (
-                        <TableRow key={key}>
-                          <TableCell className="text-xs">
-                            {createdAt}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {row.ip ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {row.location ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-[11px] max-w-xs truncate">
-                            {row.userAgent ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {row.success === false ? (
-                              <span className="text-red-500 font-medium">
-                                Failed
-                              </span>
-                            ) : (
-                              <span className="text-emerald-500 font-medium">
-                                Success
-                              </span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </main>
+      <div className="overflow-x-auto rounded-lg border border-gray-800 bg-gray-950/50">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-900">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-gray-300">
+                Date
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-gray-300">
+                IP address
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-gray-300">
+                Device / Browser
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-gray-300">
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((event, idx) => (
+              <tr
+                key={event.id ?? idx}
+                className={idx % 2 === 0 ? "bg-gray-950" : "bg-gray-900/40"}
+              >
+                <td className="px-4 py-3 whitespace-nowrap text-gray-100">
+                  {event.createdAt
+                    ? format(new Date(event.createdAt), "yyyy-MM-dd HH:mm:ss")
+                    : "-"}
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap text-gray-200">
+                  {event.ip ?? "unknown"}
+                </td>
+                <td className="px-4 py-3 text-gray-300">
+                  {event.userAgent ?? "unknown"}
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  {event.success ? (
+                    <span className="inline-flex items-center rounded-full bg-emerald-900/40 px-2 py-1 text-xs font-medium text-emerald-300 border border-emerald-700/60">
+                      Successful
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-red-900/40 px-2 py-1 text-xs font-medium text-red-300 border border-red-700/60">
+                      Failed
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
