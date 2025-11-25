@@ -108,7 +108,10 @@ export function listUserPositions(userId: number): StakingPosition[] {
 }
 
 export function calculateAccruedReward(
-  position: Pick<StakingPosition, "amount" | "apr" | "startedAt" | "closedAt" | "status">
+  position: Pick<
+    StakingPosition,
+    "amount" | "apr" | "startedAt" | "closedAt" | "status"
+  >
 ): number {
   const start = new Date(position.startedAt).getTime();
   const end =
@@ -118,7 +121,20 @@ export function calculateAccruedReward(
   if (!start || !end || end <= start) return 0;
 
   const diffDays = (end - start) / (1000 * 60 * 60 * 24);
+
+  // ✅ Interessi composti giornalieri
   const yearlyRate = position.apr / 100;
-  const reward = position.amount * yearlyRate * (diffDays / 365);
+  const dailyRate = yearlyRate / 365;
+
+  const fullDays = Math.floor(diffDays);
+  if (!Number.isFinite(fullDays) || fullDays <= 0 || dailyRate <= 0) {
+    return 0;
+  }
+
+  // Formula interesse composto: A = P * (1 + r)^n  → reward = A - P
+  const principal = position.amount;
+  const factor = Math.pow(1 + dailyRate, fullDays);
+  const reward = principal * (factor - 1);
+
   return Number.isFinite(reward) ? reward : 0;
 }

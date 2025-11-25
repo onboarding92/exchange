@@ -22,10 +22,18 @@ export const stakingRouter = router({
   myPositions: authedProcedure.query(({ ctx }) => {
     const user = ctx.user!;
     const rows = listUserPositions(user.id);
-    return rows.map((p) => ({
-      ...p,
-      accruedReward: calculateAccruedReward(p),
-    }));
+
+    return rows.map((p) => {
+      const accruedReward = calculateAccruedReward(p);
+      const roiPercent =
+        p.amount > 0 ? (accruedReward / p.amount) * 100 : 0;
+
+      return {
+        ...p,
+        accruedReward,
+        roiPercent,
+      };
+    });
   }),
 
   // User – stake from wallet
