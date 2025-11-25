@@ -43,32 +43,30 @@ export const walletRouter = router({
     const rows = db
       .prepare(
         `
-      SELECT asset, balance
+      SELECT asset, balance, locked, available
       FROM wallets
       WHERE userId = ?
       ORDER BY asset ASC
     `
       )
-      .all(ctx.user!.id) as any[];
+      .all(ctx.user!.id) as {
+        asset: string;
+        balance: number;
+        locked: number | null;
+        available: number | null;
+      }[];
 
-    return rows;
+    return rows.map((row) => ({
+      asset: row.asset,
+      balance: row.balance,
+      locked: typeof row.locked === "number" ? row.locked : 0,
+      available:
+        typeof row.available === "number"
+          ? row.available
+          : row.balance - (typeof row.locked === "number" ? row.locked : 0),
+    }));
   }),
 
-  // === WITHDRAWALS HISTORY (authed) ===
-  withdrawals: authedProcedure.query(({ ctx }) => {
-    const rows = db
-      .prepare(
-        `
-      SELECT id, asset, amount, address, status, createdAt, reviewedBy, reviewedAt
-      FROM withdrawals
-      WHERE userId = ?
-      ORDER BY createdAt DESC
-    `
-      )
-      .all(ctx.user!.id) as any[];
-
-    return rows;
-  }),
 
   // Create a deposit request (logical, not real gateway)
   createDeposit: authedProcedure

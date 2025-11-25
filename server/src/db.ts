@@ -18,7 +18,12 @@ CREATE TABLE IF NOT EXISTS wallets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   userId INTEGER NOT NULL,
   asset TEXT NOT NULL,
+  -- saldo totale
   balance REAL NOT NULL DEFAULT 0,
+  -- parte del saldo bloccata (ordini, staking, ecc.)
+  locked REAL NOT NULL DEFAULT 0,
+  -- parte del saldo disponibile all'uso immediato
+  available REAL NOT NULL DEFAULT 0,
   UNIQUE(userId, asset)
 );
 CREATE TABLE IF NOT EXISTS prices (
@@ -180,13 +185,25 @@ export function seedIfEmpty() {
     "INSERT OR REPLACE INTO prices (asset,price,updatedAt) VALUES (?,?,?)"
   );
   const upsertWallet = db.prepare(
-    "INSERT OR IGNORE INTO wallets (userId,asset,balance) VALUES (?,?,?)"
+    `
+    INSERT OR IGNORE INTO wallets (userId, asset, balance, locked, available)
+    VALUES (?, ?, ?, ?, ?)
+    `
   );
-  const demoId = db.prepare("SELECT id FROM users WHERE email=?").get("demo@bitchange.money")!.id as number;
+  const demoId = db
+    .prepare("SELECT id FROM users WHERE email=?")
+    .get("demo@bitchange.money")!.id as number;
 
   for (const [asset, name] of coins) {
     insertCoin.run(asset, name, 1, 5, 0.1);
-    upsertPrice.run(asset, Math.random() * 50000 + 10, now);
-    upsertWallet.run(demoId, asset, asset === "USDT" ? 2000 : 0.5);
+
+    const price = Math.random() * 50000 + 10;
+    upsertPrice.run(asset, price, now);
+
+    const initialBalance = asset === "USDT" ? 2000 : 0.5;
+    const locked = 0;
+    const available = initialBalance;
+
+    upsertWallet.run(demoId, asset, initialBalance, locked, available);
   }
 }
