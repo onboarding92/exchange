@@ -151,7 +151,13 @@ export function seedIfEmpty() {
   const now = new Date().toISOString();
 
   const demoHash = bcrypt.hashSync("demo123", 10);
-  const adminHash = bcrypt.hashSync("admin1234!!", 10);
+  const adminPassword = process.env.ADMIN_PASSWORD || "CHANGE_ME_ADMIN_PASSWORD";
+  if (!process.env.ADMIN_PASSWORD) {
+    console.warn(
+      "[seed] Using default admin password. Set ADMIN_PASSWORD in environment for better security."
+    );
+  }
+  const adminHash = bcrypt.hashSync(adminPassword, 10);
 
   const insertUser = db.prepare(
     "INSERT INTO users (email,password,role,kycStatus,createdAt,updatedAt) VALUES (?,?,?,?,?,?)"
