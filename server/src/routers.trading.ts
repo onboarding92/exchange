@@ -106,19 +106,118 @@ export const tradingRouter = router({
       return { ok: true };
     }),
 
-  // Cancel order (scheletro: per ora solo placeholder)
+  // Cancel order
   cancelOrder: authedProcedure
     .input(
       z.object({
         id: z.number().int().positive(),
       })
     )
-    .mutation((_opts) => {
-      // TODO: implementare verifica owner + update status + sblocco fondi
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "Cancel order non è ancora implementato.",
-      });
+    .mutation(({ ctx, input }) => {
+      const now = new Date().toISOString();
+
+      const order = db
+        .prepare(
+          `
+          SELECT id, userId, baseAsset, quoteAsset, side, type, status,
+                 price, amount, filledAmount
+          FROM orders
+          WHERE id = ?
+        `
+        )
+        .get(input.id) as
+        | {
+            id: number;
+            userId: number;
+            baseAsset: string;
+            quoteAsset: string;
+            side: "buy" | "sell";
+            type: "market" | "limit";
+            status: string;
+            price: number | null;
+            amount: number;
+            filledAmount: number;
+          }
+        | undefined;
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Order not found.",
+        });
+      }
+
+      if (order.userId !== ctx.user!.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not allowed to cancel this order.",
+        });
+      }
+
+      if (order.status !== "open") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only open orders can be cancelled.",
+        });
+      }
+
+      // Quantità rimanente non ancora eseguita
+      const remainingAmount = Math.max(
+        0,
+        order.amount - (order.filledAmount ?? 0)
+      );
+
+      let assetToUnlock: string | null = null;
+      let unlockAmount = 0;
+
+      if (order.side === "buy") {
+        // BUY → fondi bloccati sul quoteAsset = remaining * price
+        if (order.price == null) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Limit BUY order without price.",
+          });
+        }
+        assetToUnlock = order.quoteAsset;
+        unlockAmount = remainingAmount * order.price;
+      } else {
+        // SELL → fondi bloccati sul baseAsset = remaining
+        assetToUnlock = order.baseAsset;
+        unlockAmount = remainingAmount;
+      }
+
+      if (assetToUnlock && unlockAmount > 0) {
+        const wallet = db
+          .prepare(
+            "SELECT locked, available FROM wallets WHERE userId=? AND asset=?"
+          )
+          .get(order.userId, assetToUnlock) as
+          | { locked?: number | null; available?: number | null }
+          | undefined;
+
+        const locked = wallet?.locked ?? 0;
+        const actualUnlock = Math.min(unlockAmount, locked);
+
+        if (actualUnlock > 0) {
+          db.prepare(
+            `
+            UPDATE wallets
+            SET locked = locked - ?, available = available + ?
+            WHERE userId=? AND asset=?
+          `
+          ).run(actualUnlock, actualUnlock, order.userId, assetToUnlock);
+        }
+      }
+
+      db.prepare(
+        `
+        UPDATE orders
+        SET status = 'cancelled', updatedAt = ?
+        WHERE id = ?
+      `
+      ).run(now, order.id);
+
+      return { ok: true };
     }),
 
   // Order book (scheletro: ritorna solo struttura vuota)
