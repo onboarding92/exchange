@@ -6,6 +6,9 @@ import { appRouter } from "./routers";
 import type { Ctx } from "./trpc";
 import { getSession } from "./session";
 import { seedIfEmpty } from "./db";
+import cron from "node-cron";
+import { stakingCronJob } from "./jobs/stakingCron";
+
 
 seedIfEmpty();
 
@@ -27,3 +30,11 @@ const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
   console.log("API listening on http://localhost:" + port);
 });
+cron.schedule("* * * * *", async () => {
+  try {
+    await stakingCronJob();
+  } catch (err) {
+    console.error("[STAKING CRON ERROR]", err);
+  }
+});
+
