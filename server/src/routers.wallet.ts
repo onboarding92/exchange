@@ -167,23 +167,36 @@ export const walletRouter = router({
         });
       }
 
-      // Basic balance check
+      // Basic balance check (using available/locked if present)
       const wallet = db
         .prepare(
-          "SELECT balance FROM wallets WHERE userId=? AND asset=?"
+          "SELECT balance, locked, available FROM wallets WHERE userId=? AND asset=?"
         )
-        .get(ctx.user!.id, input.asset) as { balance: number } | undefined;
+        .get(ctx.user!.id, input.asset) as
+        | { balance: number; locked?: number | null; available?: number | null }
+        | undefined;
 
-      if (!wallet || wallet.balance <= 0 || wallet.balance < input.amount) {
+      const walletLocked = wallet?.locked ?? 0;
+      const walletAvailable =
+        wallet?.available != null
+          ? wallet.available
+          : (wallet?.balance ?? 0) - walletLocked;
+
+      const totalToLock = input.amount + fee;
+
+      if (!wallet || wallet.balance <= 0 || walletAvailable < totalToLock) {
         logWarn("Withdrawal failed: insufficient balance", {
           userId: ctx.user!.id,
           asset: input.asset,
           requestedAmount: input.amount,
+          withdrawFee: fee,
           balance: wallet?.balance ?? 0,
+          locked: walletLocked,
+          available: walletAvailable,
         });
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Insufficient balance for withdrawal.",
+          message: "Insufficient available balance for withdrawal.",
         });
       }
 
@@ -233,6 +246,15 @@ export const walletRouter = router({
         "pending",
         nowIso
       );
+
+      // Lock funds (amount + fee) by moving from available to locked
+      db.prepare(
+        `
+        UPDATE wallets
+        SET locked = locked + ?, available = available - ?
+        WHERE userId=? AND asset=?
+      `
+      ).run(totalToLock, totalToLock, ctx.user!.id, input.asset);
 
       // Email + activity log for withdrawal request
       try {

@@ -226,6 +226,85 @@ export const adminRouter = router({
         });
       }
 
+      // Calcola fee corrente e totale da addebitare/sbloccare
+      const coinRow = db
+        .prepare("SELECT withdrawFee FROM coins WHERE asset=?")
+        .get(wd.asset) as { withdrawFee: number } | undefined;
+      const fee = coinRow?.withdrawFee ?? 0;
+      const totalAmount = wd.amount + fee;
+
+      if (input.approve) {
+        // Approvazione: i fondi locked vengono prelevati dal balance
+        const wallet = db
+          .prepare(
+            "SELECT balance, locked, available FROM wallets WHERE userId=? AND asset=?"
+          )
+          .get(wd.userId, wd.asset) as
+          | { balance: number; locked?: number | null; available?: number | null }
+          | undefined;
+
+        const walletLocked = wallet?.locked ?? 0;
+
+        if (!wallet || wallet.balance < totalAmount) {
+          logWarn("Admin approveWithdrawal failed: insufficient wallet balance", {
+            adminId: ctx.user!.id,
+            userId: wd.userId,
+            asset: wd.asset,
+            totalAmount,
+            balance: wallet?.balance ?? 0,
+            locked: walletLocked,
+          });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Insufficient wallet balance to approve withdrawal.",
+          });
+        }
+
+        if (walletLocked >= totalAmount) {
+          // Nuovo flusso: usiamo i fondi locked
+          db.prepare(
+            `
+            UPDATE wallets
+            SET balance = balance - ?, locked = locked - ?
+            WHERE userId=? AND asset=?
+          `
+          ).run(totalAmount, totalAmount, wd.userId, wd.asset);
+        } else {
+          // Fallback legacy: non c'erano fondi locked, scala solo da balance
+          db.prepare(
+            `
+            UPDATE wallets
+            SET balance = balance - ?
+            WHERE userId=? AND asset=?
+          `
+          ).run(totalAmount, wd.userId, wd.asset);
+        }
+      } else {
+        // Rejected: se ci sono fondi locked, sbloccali (tornano available)
+        const wallet = db
+          .prepare(
+            "SELECT locked, available FROM wallets WHERE userId=? AND asset=?"
+          )
+          .get(wd.userId, wd.asset) as
+          | { locked?: number | null; available?: number | null }
+          | undefined;
+
+        const walletLocked = wallet?.locked ?? 0;
+        if (wallet && walletLocked > 0) {
+          db.prepare(
+            `
+            UPDATE wallets
+            SET locked = CASE
+                  WHEN locked > ? THEN locked - ?
+                  ELSE 0
+                END,
+                available = available + ?
+            WHERE userId=? AND asset=?
+          `
+          ).run(totalAmount, totalAmount, totalAmount, wd.userId, wd.asset);
+        }
+      }
+
       db.prepare(
         "UPDATE withdrawals SET status=?, reviewedBy=?, reviewedAt=? WHERE id=?"
       ).run(status, ctx.user!.id, now, input.id);
