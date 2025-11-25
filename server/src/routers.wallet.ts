@@ -256,6 +256,15 @@ export const walletRouter = router({
       `
       ).run(totalToLock, totalToLock, ctx.user!.id, input.asset);
 
+      // Lock funds (amount + fee) by moving from available to locked
+      db.prepare(
+        `
+        UPDATE wallets
+        SET locked = locked + ?, available = available - ?
+        WHERE userId=? AND asset=?
+      `
+      ).run(totalToLock, totalToLock, ctx.user!.id, input.asset);
+
       // Email + activity log for withdrawal request
       try {
         const lastWd = db
