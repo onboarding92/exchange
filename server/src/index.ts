@@ -37,4 +37,3 @@ cron.schedule("* * * * *", async () => {
     console.error("[STAKING CRON ERROR]", err);
   }
 });
-
