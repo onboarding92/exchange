@@ -471,3 +471,107 @@ BitChange Support Team`;
     html,
   });
 }
+
+/**
+ * Password reset email
+ */
+export async function sendPasswordResetEmail(params: {
+  to: string;
+  resetLink: string;
+  expiresAt?: string;
+}) {
+  const subject = "Reset your BitChange password";
+
+  const text = `Hello,
+
+We received a request to reset the password of your BitChange account.
+
+You can reset your password by visiting this link:
+${params.resetLink}
+
+${params.expiresAt ? `This link will expire on ${params.expiresAt}.\n\n` : ""}If you did not request this, you can safely ignore this email.
+
+BitChange Security Team`;
+
+  const html = `
+    <h2>Password reset request</h2>
+    <p>We received a request to reset the password of your BitChange account.</p>
+    <p><a href="${escapeHtml(
+      params.resetLink
+    )}">Click here to reset your password</a></p>
+    ${
+      params.expiresAt
+        ? `<p>This link will expire on ${escapeHtml(params.expiresAt)}.</p>`
+        : ""
+    }
+    <p>If you did not request this, you can safely ignore this email.</p>
+    <p>Best regards,<br/>BitChange Security Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+}
+
+/**
+ * Deposit status email
+ */
+export async function sendDepositStatusEmail(params: {
+  to: string;
+  asset: string;
+  amount: number;
+  status: "credited" | "pending" | "failed";
+  txId?: string | null;
+  gateway?: string | null;
+}) {
+  const subject = `Deposit ${params.status}`;
+
+  const baseText = `Hello,
+
+Your deposit has been ${params.status}.
+
+Asset: ${params.asset}
+Amount: ${params.amount}
+${params.gateway ? `Gateway: ${params.gateway}\n` : ""}${
+    params.txId ? `Transaction ID: ${params.txId}\n` : ""
+  }
+
+If you do not recognize this action, please contact support immediately.
+
+BitChange Support Team`;
+
+  const text = baseText;
+
+  const html = `
+    <h2>Deposit ${escapeHtml(params.status)}</h2>
+    <p>Your deposit has been <strong>${escapeHtml(
+      params.status
+    )}</strong>.</p>
+    <ul>
+      <li>Asset: <strong>${escapeHtml(params.asset)}</strong></li>
+      <li>Amount: <strong>${params.amount}</strong></li>
+      ${
+        params.gateway
+          ? `<li>Gateway: <strong>${escapeHtml(params.gateway!)}</strong></li>`
+          : ""
+      }
+      ${
+        params.txId
+          ? `<li>Transaction ID: <strong>${escapeHtml(params.txId!)}</strong></li>`
+          : ""
+      }
+    </ul>
+    <p>If you do not recognize this action, please contact support immediately.</p>
+    <p>Best regards,<br/>BitChange Support Team</p>
+  `;
+
+  return sendEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+}
