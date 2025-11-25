@@ -1254,35 +1254,43 @@ function extractClientIp(req) {
 }
 
 // src/routers.wallet.ts
-var assetSchema = z3.string().min(2).max(20).regex(/^[A-Z0-9]+$/, "Asset must be uppercase letters/numbers (e.g. BTC, ETH)");
+var assetSchema = z3.string().min(2).max(20).regex(
+  /^[A-Z0-9]+$/,
+  "Asset must be uppercase letters/numbers (e.g. BTC, ETH)"
+);
 var walletRouter = router({
   // === MARKET PRICES (public) ===
   marketPrices: publicProcedure.input(
     z3.object({
-      assets: z3.array(assetSchema).min(1).max(50)
+      assets: z3.array(assetSchema).min(1).max(100).refine((arr) => new Set(arr).size === arr.length, {
+        message: "Assets must be unique"
+      })
     })
   ).query(async ({ input }) => {
     const prices = await getUsdPrices(input.assets);
     return prices;
   }),
-  // Return all wallets (balances) for current user
+  // === BALANCES (authed) ===
   balances: authedProcedure.query(({ ctx }) => {
     const rows = db.prepare(
-      "SELECT asset,balance FROM wallets WHERE userId=? ORDER BY asset ASC"
+      `
+      SELECT asset, balance
+      FROM wallets
+      WHERE userId = ?
+      ORDER BY asset ASC
+    `
     ).all(ctx.user.id);
     return rows;
   }),
-  // Return all deposits for current user
-  deposits: authedProcedure.query(({ ctx }) => {
-    const rows = db.prepare(
-      "SELECT id,asset,amount,gateway,status,createdAt FROM deposits WHERE userId=? ORDER BY createdAt DESC"
-    ).all(ctx.user.id);
-    return rows;
-  }),
-  // Return all withdrawals for current user
+  // === WITHDRAWALS HISTORY (authed) ===
   withdrawals: authedProcedure.query(({ ctx }) => {
     const rows = db.prepare(
-      "SELECT id,asset,amount,address,status,createdAt,reviewedAt FROM withdrawals WHERE userId=? ORDER BY createdAt DESC"
+      `
+      SELECT id, asset, amount, address, status, createdAt, reviewedBy, reviewedAt
+      FROM withdrawals
+      WHERE userId = ?
+      ORDER BY createdAt DESC
+    `
     ).all(ctx.user.id);
     return rows;
   }),
@@ -1324,6 +1332,44 @@ var walletRouter = router({
     })
   ).mutation(({ input, ctx }) => {
     const now = (/* @__PURE__ */ new Date()).toISOString();
+    const coin = db.prepare(
+      "SELECT enabled, minWithdraw, withdrawFee FROM coins WHERE asset=?"
+    ).get(input.asset);
+    if (!coin || !coin.enabled) {
+      logWarn("Withdrawal failed: asset not enabled", {
+        userId: ctx.user.id,
+        asset: input.asset
+      });
+      throw new TRPCError4({
+        code: "BAD_REQUEST",
+        message: "This asset is not available for withdrawals."
+      });
+    }
+    if (coin.minWithdraw > 0 && input.amount < coin.minWithdraw) {
+      logWarn("Withdrawal failed: below minWithdraw", {
+        userId: ctx.user.id,
+        asset: input.asset,
+        requestedAmount: input.amount,
+        minWithdraw: coin.minWithdraw
+      });
+      throw new TRPCError4({
+        code: "BAD_REQUEST",
+        message: `Minimum withdrawal for ${input.asset} is ${coin.minWithdraw}`
+      });
+    }
+    const fee = coin.withdrawFee ?? 0;
+    if (fee > 0 && input.amount <= fee) {
+      logWarn("Withdrawal failed: amount too small to cover fee", {
+        userId: ctx.user.id,
+        asset: input.asset,
+        requestedAmount: input.amount,
+        withdrawFee: fee
+      });
+      throw new TRPCError4({
+        code: "BAD_REQUEST",
+        message: "Withdrawal amount is too small to cover network/withdrawal fee."
+      });
+    }
     const wallet = db.prepare(
       "SELECT balance FROM wallets WHERE userId=? AND asset=?"
     ).get(ctx.user.id, input.asset);
@@ -1349,10 +1395,13 @@ var walletRouter = router({
         });
         throw new TRPCError4({
           code: "UNAUTHORIZED",
-          message: "TWO_FACTOR_REQUIRED_WITHDRAWAL"
+          message: "Two-factor code required because 2FA is enabled on your account."
         });
       }
-      const isValid = authenticator2.check(input.twoFactorCode, twofa.secret);
+      const isValid = authenticator2.check(
+        input.twoFactorCode,
+        twofa.secret
+      );
       if (!isValid) {
         logWarn("Withdrawal blocked: invalid 2FA code", {
           userId: ctx.user.id,
@@ -1365,6 +1414,7 @@ var walletRouter = router({
         });
       }
     }
+    const nowIso = now;
     db.prepare(
       `INSERT INTO withdrawals (userId,asset,amount,address,status,createdAt)
          VALUES (?,?,?,?,?,?)`
@@ -1374,7 +1424,7 @@ var walletRouter = router({
       input.amount,
       input.address,
       "pending",
-      now
+      nowIso
     );
     try {
       const lastWd = db.prepare(
@@ -1389,27 +1439,34 @@ var walletRouter = router({
           asset: lastWd.asset,
           amount: lastWd.amount,
           address: lastWd.address,
-          requestId: lastWd.id
-        });
-      }
-      if (lastWd) {
-        logActivity({
-          userId: ctx.user.id,
-          type: "withdrawal_request",
-          category: "wallet",
-          description: `Withdrawal request ${lastWd.asset} ${lastWd.amount}`,
-          metadata: {
-            withdrawalId: lastWd.id,
-            asset: lastWd.asset,
-            amount: lastWd.amount,
-            address: lastWd.address
-          },
           ip,
           userAgent
+        }).catch((err) => {
+          console.error(
+            "[email] Failed to enqueue withdrawal request email:",
+            err
+          );
         });
       }
+      void logActivity({
+        userId: ctx.user.id,
+        type: "withdrawal_request",
+        details: {
+          asset: input.asset,
+          amount: input.amount,
+          address: input.address
+        }
+      }).catch((err) => {
+        console.error(
+          "[activity] Failed to handle withdrawal request activity:",
+          err
+        );
+      });
     } catch (err) {
-      console.error("[activity] Failed to handle withdrawal request activity:", err);
+      console.error(
+        "[withdrawal] Non-fatal error while handling notifications/logs:",
+        err
+      );
     }
     logSecurity("Withdrawal request created", {
       userId: ctx.user.id,
