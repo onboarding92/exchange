@@ -11,46 +11,91 @@ export type UnifiedTransaction = {
   description: string;
 };
 
-export function listTransactionsForUser(userId: number, limit = 200): UnifiedTransaction[] {
+/**
+ * Restituisce una lista unificata di transazioni per un utente:
+ * - deposits
+ * - withdrawals
+ * - internal transfers (sent/received)
+ *
+ * I dati vengono letti dalle tabelle SQLite:
+ *  - deposits(userId, asset, amount, gateway, status, createdAt, ...)
+ *  - withdrawals(userId, asset, amount, address, status, createdAt, ...)
+ *  - internalTransfers(fromUserId, toUserId, asset, amount, createdAt, ...)
+ *
+ * Ogni sezione è in try/catch per rendere la history robusta
+ * anche se qualche tabella/colonna cambia.
+ */
+export function listTransactionsForUser(
+  userId: number,
+  limit = 200
+): UnifiedTransaction[] {
   const txs: UnifiedTransaction[] = [];
 
+  // ==========================
   // Deposits
-  const depositRows = db
-    .prepare(
-      `SELECT id, asset, amount, status, createdAt, gateway, provider
-       FROM deposits
-       WHERE userId = ?
-       ORDER BY createdAt DESC
-       LIMIT ?`
-    )
-    .all(userId, limit) as any[];
+  // ==========================
+  try {
+    const rows = db
+      .prepare(
+        `
+        SELECT id, asset, amount, gateway, status, createdAt
+        FROM deposits
+        WHERE userId = ?
+        ORDER BY createdAt DESC
+        LIMIT ?
+      `
+      )
+      .all(userId, limit) as {
+      id: number;
+      asset: string;
+      amount: number;
+      gateway?: string | null;
+      status?: string;
+      createdAt: string;
+    }[];
 
-  for (const d of depositRows) {
-    txs.push({
-      id: `deposit:${d.id}`,
-      type: "deposit",
-      asset: d.asset,
-      amount: d.amount,
-      direction: "in",
-      status: d.status,
-      createdAt: d.createdAt ?? new Date().toISOString(),
-      description: `Deposit via ${d.provider || d.gateway || "manual"}`,
-    });
+    for (const d of rows) {
+      txs.push({
+        id: `deposit:${d.id}`,
+        type: "deposit",
+        asset: d.asset,
+        amount: d.amount,
+        direction: "in",
+        status: d.status,
+        createdAt: d.createdAt,
+        description: d.gateway
+          ? `Deposit via ${d.gateway}`
+          : "Deposit",
+      });
+    }
+  } catch (e) {
+    console.warn("[transactions] Skipping deposits in history:", e);
   }
 
+  // ==========================
   // Withdrawals
+  // ==========================
   try {
-    const withdrawalRows = db
+    const rows = db
       .prepare(
-        `SELECT id, asset, amount, status, createdAt, address
-         FROM withdrawals
-         WHERE userId = ?
-         ORDER BY createdAt DESC
-         LIMIT ?`
+        `
+        SELECT id, asset, amount, address, status, createdAt
+        FROM withdrawals
+        WHERE userId = ?
+        ORDER BY createdAt DESC
+        LIMIT ?
+      `
       )
-      .all(userId, limit) as any[];
+      .all(userId, limit) as {
+      id: number;
+      asset: string;
+      amount: number;
+      address?: string | null;
+      status?: string;
+      createdAt: string;
+    }[];
 
-    for (const w of withdrawalRows) {
+    for (const w of rows) {
       txs.push({
         id: `withdrawal:${w.id}`,
         type: "withdrawal",
@@ -58,60 +103,64 @@ export function listTransactionsForUser(userId: number, limit = 200): UnifiedTra
         amount: w.amount,
         direction: "out",
         status: w.status,
-        createdAt: w.createdAt ?? new Date().toISOString(),
-        description: `Withdrawal to ${w.address ?? "external address"}`,
+        createdAt: w.createdAt,
+        description: `Withdrawal to ${
+          w.address ?? "external address"
+        }`,
       });
     }
   } catch (e) {
-    // If withdrawals table/columns differ or dont exist, we simply skip them.
-    // This keeps the history page robust even if schema changes.
     console.warn("[transactions] Skipping withdrawals in history:", e);
   }
 
+  // ==========================
   // Internal transfers
+  // ==========================
   try {
-    const internalRows = db
+    const rows = db
       .prepare(
-        `SELECT id, fromUserId, toUserId, asset, amount, memo, createdAt
-         FROM internalTransfers
-         WHERE fromUserId = ? OR toUserId = ?
-         ORDER BY createdAt DESC
-         LIMIT ?`
+        `
+        SELECT id, fromUserId, toUserId, asset, amount, createdAt
+        FROM internalTransfers
+        WHERE fromUserId = ? OR toUserId = ?
+        ORDER BY createdAt DESC
+        LIMIT ?
+      `
       )
-      .all(userId, userId, limit) as any[];
+      .all(userId, userId, limit) as {
+      id: number;
+      fromUserId: number;
+      toUserId: number;
+      asset: string;
+      amount: number;
+      createdAt: string;
+    }[];
 
-    for (const t of internalRows) {
-      const base: Omit<UnifiedTransaction, "id" | "type" | "direction"> = {
+    for (const t of rows) {
+      const isSender = t.fromUserId === userId;
+
+      txs.push({
+        id: `internal:${t.id}`,
+        type: isSender ? "internal_sent" : "internal_received",
         asset: t.asset,
         amount: t.amount,
-        status: "completed",
-        createdAt: t.createdAt ?? new Date().toISOString(),
-        description: t.memo
-          ? `Internal transfer (${t.memo})`
-          : "Internal transfer",
-      };
-
-      if (t.fromUserId === userId) {
-        txs.push({
-          id: `internal_sent:${t.id}`,
-          type: "internal_sent",
-          direction: "out",
-          ...base,
-        });
-      } else if (t.toUserId === userId) {
-        txs.push({
-          id: `internal_received:${t.id}`,
-          type: "internal_received",
-          direction: "in",
-          ...base,
-        });
-      }
+        direction: isSender ? "out" : "in",
+        createdAt: t.createdAt,
+        description: isSender
+          ? `Internal transfer to user #${t.toUserId}`
+          : `Internal transfer from user #${t.fromUserId}`,
+      });
     }
   } catch (e) {
-    console.warn("[transactions] Skipping internalTransfers in history:", e);
+    console.warn(
+      "[transactions] Skipping internalTransfers in history:",
+      e
+    );
   }
 
-  // Sort all combined by date desc and limit
+  // ==========================
+  // Sort globale + limit
+  // ==========================
   txs.sort((a, b) => {
     const ta = new Date(a.createdAt).getTime();
     const tb = new Date(b.createdAt).getTime();
