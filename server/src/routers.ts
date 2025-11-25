@@ -7,12 +7,14 @@ import { stakingRouter } from "./routers.staking";
 import { transactionsRouter } from "./routers.transactions";
 import { internalRouter } from "./routers.internal";
 import { supportRouter } from "./routers.support";
+import { tradingRouter } from "./routers.trading";
 import { adminRouter } from "./routers.admin";
 import { paymentRouter } from "./routers.payment";
 import { loginHistoryRouter } from "./routers.loginHistory";
 import { internalTransferRouter } from "./routers.internalTransfer";
 
 export const appRouter = router({
+  trading: tradingRouter,
   internalTransfer: internalTransferRouter,
   loginHistory: loginHistoryRouter,
   payment: paymentRouter,
