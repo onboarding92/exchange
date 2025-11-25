@@ -333,4 +333,52 @@ export const stakingRouter = router({
         });
       }
     }),
+
+  // Lista snapshot reward per una singola posizione (solo dell'utente loggato)
+  rewardSnapshotsByPosition: authedProcedure
+    .input(
+      z.object({
+        positionId: z.number().int().positive(),
+      })
+    )
+    .query(({ ctx, input }) => {
+      const rows = db
+        .prepare(
+          `
+          SELECT s.snapshotDate, s.accruedReward
+          FROM stakingRewardSnapshots s
+          JOIN stakingPositions p ON p.id = s.positionId
+          WHERE s.positionId = ? AND p.userId = ?
+          ORDER BY s.snapshotDate ASC
+        `
+        )
+        .all(input.positionId, ctx.user!.id) as {
+          snapshotDate: string;
+          accruedReward: number;
+        }[];
+
+      return rows;
+    }),
+
+  // Lista snapshot reward per tutte le posizioni dell'utente
+  rewardSnapshotsForUser: authedProcedure.query(({ ctx }) => {
+    const rows = db
+      .prepare(
+        `
+        SELECT s.positionId, s.snapshotDate, s.accruedReward
+        FROM stakingRewardSnapshots s
+        JOIN stakingPositions p ON p.id = s.positionId
+        WHERE p.userId = ?
+        ORDER BY s.snapshotDate ASC, s.positionId ASC
+      `
+      )
+      .all(ctx.user!.id) as {
+        positionId: number;
+        snapshotDate: string;
+        accruedReward: number;
+      }[];
+
+    return rows;
+  }),
+
 });
