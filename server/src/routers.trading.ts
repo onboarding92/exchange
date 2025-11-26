@@ -220,7 +220,7 @@ export const tradingRouter = router({
       return { ok: true };
     }),
 
-  // Order book (scheletro: ritorna solo struttura vuota)
+  // Order book: costruito dagli ordini 'open' di tipo 'limit'
   orderBook: publicProcedure
     .input(
       z.object({
@@ -232,14 +232,54 @@ export const tradingRouter = router({
       const base = input.baseAsset.toUpperCase();
       const quote = input.quoteAsset.toUpperCase();
 
-      // TODO: nei prossimi step:
-      // - costruire book da ordini 'open'
-      // - separare bids/asks, ordinare per prezzo
+      const rows = db
+        .prepare(
+          `
+          SELECT side, price, amount, filledAmount
+          FROM orders
+          WHERE baseAsset = ?
+            AND quoteAsset = ?
+            AND type = 'limit'
+            AND status = 'open'
+        `
+        )
+        .all(base, quote) as {
+          side: "buy" | "sell";
+          price: number | null;
+          amount: number;
+          filledAmount: number;
+        }[];
+
+      const bidsMap = new Map<number, number>(); // price -> total amount
+      const asksMap = new Map<number, number>();
+
+      for (const row of rows) {
+        if (row.price == null) continue;
+        const remaining = Math.max(0, row.amount - (row.filledAmount ?? 0));
+        if (remaining <= 0) continue;
+
+        if (row.side === "buy") {
+          const prev = bidsMap.get(row.price) ?? 0;
+          bidsMap.set(row.price, prev + remaining);
+        } else {
+          const prev = asksMap.get(row.price) ?? 0;
+          asksMap.set(row.price, prev + remaining);
+        }
+      }
+
+      const bids = Array.from(bidsMap.entries())
+        .map(([price, amount]) => ({ price, amount }))
+        .sort((a, b) => b.price - a.price); // BIDS: prezzo decrescente
+
+      const asks = Array.from(asksMap.entries())
+        .map(([price, amount]) => ({ price, amount }))
+        .sort((a, b) => a.price - b.price); // ASKS: prezzo crescente
+
       return {
         baseAsset: base,
         quoteAsset: quote,
-        bids: [] as { price: number; amount: number }[],
-        asks: [] as { price: number; amount: number }[],
+        bids,
+        asks,
       };
     }),
 });
