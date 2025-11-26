@@ -57,33 +57,27 @@ vi.mock("./db", () => {
 
         all: (...args: any[]) => {
           // myOrders: WHERE userId = ?
-          if (
-            sql.includes("FROM orders") &&
-            sql.includes("WHERE userId = ?")
-          ) {
+          if (sql.includes("FROM orders") && sql.includes("WHERE userId = ?")) {
             const [userId] = args;
             return mockOrders
               .filter((o) => o.userId === userId)
-              .sort(
-                (a, b) => b.createdAt.localeCompare(a.createdAt)
-              );
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
           }
 
           // orderBook: WHERE baseAsset = ? AND quoteAsset = ?
           if (
-            sql.includes("FROM orders") and
-            sql.includes("WHERE baseAsset = ?") and
+            sql.includes("FROM orders") &&
+            sql.includes("WHERE baseAsset = ?") &&
             sql.includes("AND quoteAsset = ?")
-          ):
-            baseAsset, quoteAsset = args
-            # filter open limit orders
-            return [
-                o for o in mockOrders
-                if o["baseAsset"] == baseAsset
-                and o["quoteAsset"] == quoteAsset
-                and o["type"] == "limit"
-                and o["status"] == "open"
-            ]
+          ) {
+            const [baseAsset, quoteAsset] = args;
+            return mockOrders.filter(
+              (o) =>
+                o.baseAsset === baseAsset &&
+                o.quoteAsset === quoteAsset &&
+                o.type === "limit" &&
+                o.status === "open"
+            );
           }
 
           return [];
@@ -93,7 +87,8 @@ vi.mock("./db", () => {
           // UPDATE wallets SET locked = locked + ?, available = available - ?
           if (
             sql.includes("UPDATE wallets") &&
-            "locked = locked + ?" in sql
+            sql.includes("locked = locked + ?") &&
+            sql.includes("available = available - ?")
           ) {
             const [delta, _deltaAvail, userId, asset] = args;
             const w = mockWallets.find(
@@ -108,7 +103,8 @@ vi.mock("./db", () => {
           // UPDATE wallets SET locked = locked - ?, available = available + ?
           if (
             sql.includes("UPDATE wallets") &&
-            "locked = locked - ?" in sql
+            sql.includes("locked = locked - ?") &&
+            sql.includes("available = available + ?")
           ) {
             const [delta, _deltaAvail, userId, asset] = args;
             const w = mockWallets.find(
@@ -151,7 +147,10 @@ vi.mock("./db", () => {
           }
 
           // UPDATE orders SET status = 'cancelled'
-          if (sql.includes("UPDATE orders") && sql.includes("status = 'cancelled'")) {
+          if (
+            sql.includes("UPDATE orders") &&
+            sql.includes("status = 'cancelled'")
+          ) {
             const [updatedAt, id] = args;
             const o = mockOrders.find((o) => o.id === id);
             if (o) {
@@ -190,7 +189,7 @@ function createCaller(userId = 1) {
   return tradingRouter.createCaller(ctx);
 }
 
-describe("trading.placeLimitOrder + cancelOrder", () => {
+describe("trading.placeLimitOrder + cancelOrder (locked/available)", () => {
   beforeEach(() => {
     mockWallets = [
       {
@@ -244,7 +243,6 @@ describe("trading.placeLimitOrder + cancelOrder", () => {
 
     const wAfter = mockWallets[0];
 
-    // locked riportato a 0, available torna 1000
     expect(wAfter.locked).toBeCloseTo(0);
     expect(wAfter.available).toBeCloseTo(1000);
 
@@ -256,7 +254,7 @@ describe("trading.placeLimitOrder + cancelOrder", () => {
   it("rifiuta un ordine se il saldo available è insufficiente", async () => {
     const caller = createCaller();
 
-    // disponibile < requiredAmount (1000 < 2000)
+    // disponibile < requiredAmount (100 < 200)
     mockWallets[0].available = 100;
 
     await expect(
@@ -264,13 +262,98 @@ describe("trading.placeLimitOrder + cancelOrder", () => {
         baseAsset: "BTC",
         quoteAsset: "USDT",
         side: "buy",
-        price: 100,
+        price: 10,
         amount: 20,
       })
     ).rejects.toBeInstanceOf(TRPCError);
 
-    // nessun ordine creato, nessun lock
     expect(mockOrders).toHaveLength(0);
     expect(mockWallets[0].locked).toBe(0);
   });
+
+  it("costruisce un orderBook aggregando gli ordini open per prezzo", async () => {
+    const caller = createCaller();
+
+    const now = new Date().toISOString();
+
+    mockOrders.push(
+      {
+        id: nextOrderId++,
+        userId: 1,
+        baseAsset: "BTC",
+        quoteAsset: "USDT",
+        side: "buy",
+        type: "limit",
+        status: "open",
+        price: 100,
+        amount: 1,
+        filledAmount: 0,
+        createdAt: now,
+        updatedAt: null,
+      },
+      {
+        id: nextOrderId++,
+        userId: 1,
+        baseAsset: "BTC",
+        quoteAsset: "USDT",
+        side: "buy",
+        type: "limit",
+        status: "open",
+        price: 99,
+        amount: 2,
+        filledAmount: 0,
+        createdAt: now,
+        updatedAt: null,
+      },
+      {
+        id: nextOrderId++,
+        userId: 2,
+        baseAsset: "BTC",
+        quoteAsset: "USDT",
+        side: "sell",
+        type: "limit",
+        status: "open",
+        price: 105,
+        amount: 0.5,
+        filledAmount: 0,
+        createdAt: now,
+        updatedAt: null,
+      },
+      {
+        id: nextOrderId++,
+        userId: 3,
+        baseAsset: "BTC",
+        quoteAsset: "USDT",
+        side: "sell",
+        type: "limit",
+        status: "open",
+        price: 105,
+        amount: 0.25,
+        filledAmount: 0,
+        createdAt: now,
+        updatedAt: null,
+      }
+    );
+
+    const book = await caller.orderBook({
+      baseAsset: "BTC",
+      quoteAsset: "USDT",
+    });
+
+    expect(book.baseAsset).toBe("BTC");
+    expect(book.quoteAsset).toBe("USDT");
+
+    // BID: due livelli a 100 e 99, ordinati per prezzo desc
+    expect(book.bids).toHaveLength(2);
+    expect(book.bids[0].price).toBe(100);
+    expect(book.bids[0].amount).toBeCloseTo(1);
+    expect(book.bids[1].price).toBe(99);
+    expect(book.bids[1].amount).toBeCloseTo(2);
+
+    // ASK: un solo livello a 105, con amount aggregato = 0.5 + 0.25 = 0.75
+    expect(book.asks).toHaveLength(1);
+    expect(book.asks[0].price).toBe(105);
+    expect(book.asks[0].amount).toBeCloseTo(0.75);
+  });
+
 });
