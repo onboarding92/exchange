@@ -2,8 +2,7 @@ import { router, authedProcedure, publicProcedure } from "./trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { db } from "./db";
-import type { OrderRow } from "./trading";
-import "./trading"; // assicura che ensureTradingSchema venga eseguito
+import { matchOrder, type OrderRow } from "./trading";
 
 export const tradingRouter = router({
   // Lista ultimi ordini dell'utente (per ora senza filtri complessi)
@@ -85,7 +84,7 @@ export const tradingRouter = router({
       ).run(requiredAmount, requiredAmount, ctx.user!.id, assetToLock);
 
       // Inserisci l'ordine come "open"
-      db.prepare(
+      const insertResult = db.prepare(
         `
         INSERT INTO orders (
           userId, baseAsset, quoteAsset, side, type, status,
@@ -102,6 +101,11 @@ export const tradingRouter = router({
         input.amount,
         now
       );
+
+      const orderId = Number((insertResult as any).lastInsertRowid ?? 0);
+      if (orderId) {
+        matchOrder(orderId);
+      }
 
       return { ok: true };
     }),
