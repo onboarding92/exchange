@@ -30,6 +30,7 @@ type OrderRow = {
 
 let mockWallets: WalletRow[] = [];
 let mockOrders: OrderRow[] = [];
+let mockTrades: { buyOrderId: number; sellOrderId: number; price: number; amount: number }[] = [];
 let nextOrderId = 1;
 
 // Mock del modulo db usato da tradingRouter
@@ -146,6 +147,23 @@ vi.mock("./db", () => {
             return { changes: 1, lastInsertRowid: order.id };
           }
 
+          // INSERT INTO trades
+          if (sql.includes("INSERT INTO trades")) {
+            const [
+              buyOrderId,
+              sellOrderId,
+              _baseAsset,
+              _quoteAsset,
+              price,
+              amount,
+              _takerUserId,
+              _makerUserId,
+              _createdAt,
+            ] = args;
+            mockTrades.push({ buyOrderId, sellOrderId, price, amount });
+            return { changes: 1, lastInsertRowid: mockTrades.length };
+          }
+
           // UPDATE orders SET status = 'cancelled'
           if (
             sql.includes("UPDATE orders") &&
@@ -201,6 +219,7 @@ describe("trading.placeLimitOrder + cancelOrder (locked/available)", () => {
       },
     ];
     mockOrders = [];
+    mockTrades = [];
     nextOrderId = 1;
   });
 
@@ -354,6 +373,53 @@ describe("trading.placeLimitOrder + cancelOrder (locked/available)", () => {
     expect(book.asks).toHaveLength(1);
     expect(book.asks[0].price).toBe(105);
     expect(book.asks[0].amount).toBeCloseTo(0.75);
+  });
+
+
+  it("esegue matching base tra un BUY e un SELL limit order", async () => {
+    const caller = createCaller();
+
+    const now = new Date().toISOString();
+
+    // Ordine SELL preesistente sul book: 1 BTC @ 100 USDT
+    mockOrders.push({
+      id: nextOrderId++,
+      userId: 2,
+      baseAsset: "BTC",
+      quoteAsset: "USDT",
+      side: "sell",
+      type: "limit",
+      status: "open",
+      price: 100,
+      amount: 1,
+      filledAmount: 0,
+      createdAt: now,
+      updatedAt: null,
+    });
+
+    // L'utente 1 piazza un BUY 0.5 BTC @ 105 → dovrebbe matchare il SELL 100
+    await caller.placeLimitOrder({
+      baseAsset: "BTC",
+      quoteAsset: "USDT",
+      side: "buy",
+      price: 105,
+      amount: 0.5,
+    });
+
+    // Dovrebbe essere stato creato un trade
+    expect(mockTrades.length).toBe(1);
+    const trade = mockTrades[0];
+    expect(trade.price).toBe(100);
+    expect(trade.amount).toBeCloseTo(0.5);
+
+    // Trova ordini aggiornati
+    const buyOrder = mockOrders.find((o) => o.userId === 1)!;
+    const sellOrder = mockOrders.find((o) => o.userId === 2)!;
+
+    // Gli ordini esistono e il trade è stato creato.
+    // (Nel mock non aggiorniamo filledAmount/status sugli ordini.)
+    expect(buyOrder).toBeDefined();
+    expect(sellOrder).toBeDefined();
   });
 
 });
