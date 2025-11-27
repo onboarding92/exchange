@@ -29,6 +29,7 @@ export default function Trading() {
   );
 
   const myOrdersQuery = trpc.trading.myOrders.useQuery();
+  const myTradesQuery = trpc.trading.myTrades.useQuery();
 
   const assets = tickersQuery.data?.assets ?? [];
   const tickers = tickersQuery.data?.tickers ?? [];
@@ -334,6 +335,53 @@ export default function Trading() {
           </table>
         )}
       </section>
-    </div>
+    
+{/* I miei trade */}
+<section className="space-y-3 mt-6">
+  <h3 className="text-xl font-semibold">I miei trade</h3>
+  {myTradesQuery?.isLoading && <p>Caricamento trade...</p>}
+  {myTradesQuery?.error && (
+    <p className="text-red-500">
+      Errore nel caricamento dei trade: {myTradesQuery.error.message}
+    </p>
+  )}
+  {myTradesQuery?.data && (
+    <table className="w-full text-sm border">
+      <thead>
+        <tr className="bg-gray-100">
+          <th className="px-2 py-1 text-left">ID</th>
+          <th className="px-2 py-1 text-left">Coppia</th>
+          <th className="px-2 py-1 text-left">Prezzo</th>
+          <th className="px-2 py-1 text-left">Quantità</th>
+          <th className="px-2 py-1 text-left">Data</th>
+        </tr>
+      </thead>
+      <tbody>
+        {myTradesQuery.data.map((t) => (
+          <tr key={t.id}>
+            <td className="px-2 py-1">{t.id}</td>
+            <td className="px-2 py-1">
+              {t.baseAsset}/{t.quoteAsset}
+            </td>
+            <td className="px-2 py-1">{t.price}</td>
+            <td className="px-2 py-1">{t.amount}</td>
+            <td className="px-2 py-1">
+              {new Date(t.createdAt).toLocaleString()}
+            </td>
+          </tr>
+        ))}
+        {myTradesQuery.data.length === 0 && (
+          <tr>
+            <td className="px-2 py-2 text-center" colSpan={5}>
+              Nessun trade eseguito
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  )}
+</section>
+
+</div>
   );
 }
