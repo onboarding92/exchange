@@ -23,6 +23,45 @@ export const tradingRouter = router({
     return rows;
   }),
 
+  // Lista ultimi trade eseguiti dall'utente (come taker o maker)
+  myTrades: authedProcedure.query(({ ctx }) => {
+    const rows = db
+      .prepare(
+        `
+        SELECT
+          id,
+          buyOrderId,
+          sellOrderId,
+          baseAsset,
+          quoteAsset,
+          price,
+          amount,
+          takerUserId,
+          makerUserId,
+          createdAt
+        FROM trades
+        WHERE takerUserId = ?
+           OR makerUserId = ?
+        ORDER BY createdAt DESC
+        LIMIT 100
+      `
+      )
+      .all(ctx.user!.id, ctx.user!.id) as {
+        id: number;
+        buyOrderId: number;
+        sellOrderId: number;
+        baseAsset: string;
+        quoteAsset: string;
+        price: number;
+        amount: number;
+        takerUserId: number;
+        makerUserId: number;
+        createdAt: string;
+      }[];
+
+    return rows;
+  }),
+
   // Place limit order (scheletro: inserisce l'ordine, ma NON fa ancora matching)
   placeLimitOrder: authedProcedure
     .input(
