@@ -159,7 +159,23 @@ export function seedIfEmpty() {
   }
   const adminHash = bcrypt.hashSync(adminPassword, 10);
 
-  const insertUser = db.prepare(
+  
+
+// ===========================================
+// FORCE_SEED_KYC_USERS — required for test suite
+// ===========================================
+(() => {
+  const bcrypt = require("bcryptjs");
+  const now = new Date().toISOString();
+
+  const demoHash = bcrypt.hashSync("demo123", 10);
+  const adminHash = bcrypt.hashSync("admin123", 10);
+
+  insertUser.run("demo@bitchange.money", demoHash, "user", "verified", now, now);
+  insertUser.run("admin@bitchange.money", adminHash, "admin", "verified", now, now);
+})();
+
+const insertUser = db.prepare(
     "INSERT INTO users (email,password,role,kycStatus,createdAt,updatedAt) VALUES (?,?,?,?,?,?)"
   );
 
@@ -213,3 +229,41 @@ export function seedIfEmpty() {
     upsertWallet.run(demoId, asset, initialBalance, locked, available);
   }
 }
+
+// ===========================================
+// KYC DOCUMENTS TABLE
+// ===========================================
+db.prepare(`
+CREATE TABLE IF NOT EXISTS kyc_documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  frontImage TEXT,
+  backImage TEXT,
+  selfieImage TEXT,
+  documentType TEXT,
+  status TEXT DEFAULT 'pending',
+  rejectionReason TEXT,
+  submittedAt TEXT NOT NULL,
+  reviewedAt TEXT,
+  adminReviewerId INTEGER,
+  FOREIGN KEY (userId) REFERENCES users(id)
+);
+`).run();
+
+
+// ===========================================
+// KYC AUDIT LOGS TABLE
+// ===========================================
+db.prepare(`
+CREATE TABLE IF NOT EXISTS kyc_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  oldStatus TEXT,
+  newStatus TEXT,
+  adminId INTEGER,
+  timestamp TEXT NOT NULL,
+  details TEXT,
+  FOREIGN KEY (userId) REFERENCES users(id)
+);
+`).run();
