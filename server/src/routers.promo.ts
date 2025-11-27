@@ -7,7 +7,7 @@ export const promoRouter = router({
   redeem: authedProcedure
     .input(z.object({ code: z.string().min(3).max(64) }))
     .mutation(({ ctx, input }) => {
-      const promo = db.prepare("SELECT * FROM promoCodes WHERE code=?").get(input.code) as any;
+      const promo = db.prepare(`SELECT * FROM promoCodes WHERE code=?`)get(input.code) as any;
       if (!promo) throw new Error("Invalid promo code");
       if (promo.expiresAt && promo.expiresAt < new Date().toISOString()) {
         throw new Error("Promo code expired");
@@ -47,7 +47,7 @@ export const promoRouter = router({
     `).all(ctx.user!.id);
   }),
   adminList: adminProcedure.query(() => {
-    return db.prepare("SELECT * FROM promoCodes ORDER BY createdAt DESC").all();
+    return db.prepare(`SELECT * FROM promoCodes ORDER BY createdAt DESC`)all();
   }),
   adminCreate: adminProcedure
     .input(z.object({

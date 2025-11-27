@@ -229,7 +229,7 @@ export const supportRouter = router({
       // Try to email the user (if SMTP configured)
       try {
         const userRow = db
-          .prepare("SELECT email FROM users WHERE id = ?")
+          .prepare(`SELECT email FROM users WHERE id = ?")
           .get(ticket.userId) as { email?: string } | undefined;
 
         if (userRow?.email) {

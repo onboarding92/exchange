@@ -161,16 +161,16 @@ export const adminRouter = router({
   // ========================
   stats: adminProcedure.query(() => {
     const users = db
-      .prepare("SELECT COUNT(*) as c FROM users")
+      .prepare(`SELECT COUNT(*) as c FROM users")
       .get() as any;
     const deposits = db
-      .prepare("SELECT COUNT(*) as c FROM deposits")
+      .prepare(`SELECT COUNT(*) as c FROM deposits")
       .get() as any;
     const withdrawals = db
-      .prepare("SELECT COUNT(*) as c FROM withdrawals")
+      .prepare(`SELECT COUNT(*) as c FROM withdrawals")
       .get() as any;
     const trades = db
-      .prepare("SELECT COUNT(*) as c FROM trades")
+      .prepare(`SELECT COUNT(*) as c FROM trades")
       .get() as any;
 
     return {
@@ -197,7 +197,7 @@ export const adminRouter = router({
   // ========================
   withdrawals: adminProcedure.query(() => {
     return db
-      .prepare("SELECT * FROM withdrawals ORDER BY createdAt DESC")
+      .prepare(`SELECT * FROM withdrawals ORDER BY createdAt DESC")
       .all();
   }),
 
@@ -216,7 +216,7 @@ export const adminRouter = router({
       const status = input.approve ? "approved" : "rejected";
 
       const wd = db
-        .prepare("SELECT * FROM withdrawals WHERE id=?")
+        .prepare(`SELECT * FROM withdrawals WHERE status='pending' AND id=?")
         .get(input.id) as any;
 
       if (!wd) {
@@ -228,7 +228,7 @@ export const adminRouter = router({
 
       // Calcola fee corrente e totale da addebitare/sbloccare
       const coinRow = db
-        .prepare("SELECT withdrawFee FROM coins WHERE asset=?")
+        .prepare(`SELECT withdrawFee FROM coins WHERE asset=?")
         .get(wd.asset) as { withdrawFee: number } | undefined;
       const fee = coinRow?.withdrawFee ?? 0;
       const totalAmount = wd.amount + fee;
@@ -312,7 +312,7 @@ export const adminRouter = router({
       // email utente
       if (wd.userId) {
         const u = db
-          .prepare("SELECT email FROM users WHERE id=?")
+          .prepare(`SELECT email FROM users WHERE id=?")
           .get(wd.userId) as any;
 
         if (u?.email) {
@@ -363,7 +363,7 @@ export const adminRouter = router({
   // ========================
   coins: adminProcedure.query(() => {
     return db
-      .prepare("SELECT * FROM coins ORDER BY asset ASC")
+      .prepare(`SELECT * FROM coins ORDER BY asset ASC")
       .all();
   }),
 
@@ -405,7 +405,7 @@ export const adminRouter = router({
   profit: adminProcedure.query(() => {
     const totalUsers =
       (db
-        .prepare("SELECT COUNT(*) as c FROM users")
+        .prepare(`SELECT COUNT(*) as c FROM users")
         .get() as any).c ?? 0;
     const totalDeposited =
       (db
@@ -416,7 +416,7 @@ export const adminRouter = router({
     const totalWithdrawn =
       (db
         .prepare(
-          "SELECT SUM(amount) as s FROM withdrawals WHERE status='approved'"
+          "SELECT SUM(amount) as s FROM withdrawals WHERE status='pending' AND status='approved'"
         )
         .get() as any).s || 0;
 

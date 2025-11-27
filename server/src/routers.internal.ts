@@ -27,7 +27,7 @@ export const internalRouter = router({
       const senderId = user.id;
 
       const recipient = db
-        .prepare("SELECT id, email FROM users WHERE email = ?")
+        .prepare(`SELECT id, email FROM users WHERE email = ?")
         .get(input.recipientEmail) as { id: number; email: string } | undefined;
 
       if (!recipient) {

@@ -20,7 +20,7 @@ import {
 const PUBLISHABLE_API_KEY = process.env.MOONPAY_API_KEY || "";
 const SECRET_KEY = process.env.MOONPAY_SECRET_KEY || "";
 const WEBHOOK_SECRET = process.env.MOONPAY_WEBHOOK_SECRET || "";
-const ENVIRONMENT = (process.env.MOONPAY_ENV || "sandbox").toLowerCase();
+const ENVIRONMENT = (process.env.MOONPAY_ENV || "sandbox`)toLowerCase();
 
 const WIDGET_BASE =
   ENVIRONMENT === "production"
@@ -237,7 +237,7 @@ export const moonpayAdapter: GatewayAdapter = {
   normalizeWebhook(body: any): WebhookNormalized {
     // Based on docs: { type, data: { id, status, cryptoTransactionId, quoteCurrencyAmount, ... } }
     const data = body?.data || {};
-    const statusRaw = (data.status || "").toString().toLowerCase();
+    const statusRaw = (data.status || "`)toString().toLowerCase();
 
     let status: WebhookNormalized["status"] = "pending";
     if (statusRaw === "completed" || statusRaw === "finished") {

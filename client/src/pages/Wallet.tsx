@@ -3,6 +3,12 @@ import React, { useState } from "react";
 import { trpc } from "../trpc";
 
 export default function Wallet() {
+  /* AUTO-REFRESH */
+  const { data, refetch } = trpc.wallet.status.useQuery();
+  React.useEffect(() => {
+    const id = setInterval(() => refetch(), 5000);
+    return () => clearInterval(id);
+  }, []);
   /* auto-refresh */
   const { data, refetch } = trpc.wallet.status.useQuery();
   React.useEffect(() => {
