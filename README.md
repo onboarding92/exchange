@@ -13,272 +13,303 @@ A secure, full-featured cryptocurrency exchange platform built with modern web t
 
 BitChange is an enterprise-grade cryptocurrency exchange platform that combines institutional-level security with an intuitive user experience. Built on a modern tech stack with TypeScript throughout, the platform ensures type safety and reliability across all operations.
 
-### **Key Highlights**
+### Key Highlights
 
-- **Multi-Asset Support** - Trade 15+ major cryptocurrencies including BTC, ETH, USDT, BNB, and more
-- **Enterprise Security** - Two-factor authentication, rate limiting, encrypted sessions, and comprehensive audit logging
-- **Payment Integration** - Six integrated payment gateways for seamless fiat-to-crypto on-ramp
-- **Advanced Trading** - Real-time order execution with complete transaction history
-- **Staking Rewards** - Multiple staking plans with competitive APR rates
-- **KYC Compliance** - Built-in identity verification system with document management
-- **Admin Dashboard** - Comprehensive administrative controls and analytics
+- **Multi-Asset Support** – Trade 15+ major cryptocurrencies including BTC, ETH, USDT, BNB, and more  
+- **Enterprise Security** – Two-factor authentication, rate limiting, encrypted sessions, and comprehensive audit logging  
+- **Payment Integration** – Fiat on-ramp via external payment gateways  
+- **Advanced Trading** – Order system with matching engine and trade logging  
+- **Staking Rewards** – Multiple staking plans with compound interest  
+- **KYC Compliance** – Built-in identity verification system with document management  
+- **Admin Dashboard** – Comprehensive administrative controls and analytics  
 
 ---
 
 ## ✨ Core Features
 
-### 🔐 **Security Architecture**
+### 🔐 Security Architecture
 
-**Two-Factor Authentication (2FA)**
-- TOTP-based authentication using industry-standard protocols
-- Google Authenticator and compatible apps supported
-- Enforced on login and withdrawal operations
-- QR code generation for easy setup
+**Two-Factor Authentication (2FA)**  
+- TOTP-based authentication using industry-standard protocols  
+- Google Authenticator and compatible apps supported  
+- Enforced on login and withdrawal operations  
+- QR code generation for easy setup  
 
-**Advanced Protection**
-- IP-based rate limiting with configurable thresholds
-- Bcrypt password hashing with salt rounds
-- HTTP-only secure cookies for session management
-- Database-backed session storage
-- Comprehensive input validation using Zod schemas
-- Login history tracking with IP and device information
+**Advanced Protection**  
+- IP-based rate limiting with configurable thresholds  
+- Bcrypt password hashing with salt rounds  
+- HTTP-only secure cookies for session management  
+- SQLite-backed session storage  
+- Comprehensive input validation using Zod schemas  
+- Login history tracking with IP and device information  
+- Admin-only operations protected via role checks  
 
-### 💰 **Wallet & Asset Management**
+---
+
+### 💰 Wallet & Asset Management
 
 **Multi-Currency Wallet**
-- Support for 15+ major cryptocurrencies
-- Real-time balance tracking (available and locked)
-- Unique deposit addresses per asset
-- Transaction history with filtering and search
-- Internal transfers between platform users
 
-**Supported Assets**
-```
+- Support for 15+ major cryptocurrencies  
+- Real-time balance tracking with separation of:
+  - `balance`
+  - `available`
+  - `locked`
+- Internal bookkeeping for deposits, withdrawals, and internal transfers  
+- Transaction history with filters and search  
+
+**Supported Assets (esempio)**
+
+\`\`\`
 Bitcoin (BTC)          Ethereum (ETH)         Tether (USDT)
 Binance Coin (BNB)     Cardano (ADA)          Solana (SOL)
 Ripple (XRP)           Polkadot (DOT)         Dogecoin (DOGE)
 Avalanche (AVAX)       Shiba Inu (SHIB)       Polygon (MATIC)
 Litecoin (LTC)         Chainlink (LINK)       Stellar (XLM)
-```
+\`\`\`
 
-### 📈 **Trading Platform**
+---
+
+### 📈 Trading Platform
+
+Il modulo Trading fornisce una prima versione di matching engine centralizzato.
 
 **Order Execution**
-- Market orders with instant execution
-- Real-time price updates
-- Complete order history
-- Transaction fee transparency
-- Trade confirmation notifications
+
+- Ordini **LIMIT** BUY/SELL  
+- Order book basato su tabelle SQLite  
+- Matching engine che:
+  - blocca i fondi `locked` al placement dell’ordine
+  - esegue il matching BUY ↔ SELL
+  - registra i trade in tabella `trades`
+  - aggiorna in automatico i wallet (balance/locked/available)  
 
 **Trading Features**
-- Multiple trading pairs
-- Order book visibility
-- Price charts and market data
-- Volume tracking
-- 24/7 trading availability
 
-### 💳 **Deposit & Withdrawal System**
+- Coppie base/quote (es. BTC/USDT)  
+- Storico ordini per utente  
+- Storico trade per utente  
+- API tRPC per:
+  - `placeLimitOrder`
+  - `cancelOrder`
+  - `orderBook`
+  - `myOrders`
+  - `myTrades`  
 
-**Fiat On-Ramp Integration**
+---
 
-Six integrated payment gateways provide multiple options for purchasing cryptocurrency:
+### 💳 Deposit & Withdrawal System
 
-| Gateway | Features | Payment Methods |
-|---------|----------|-----------------|
-| **MoonPay** | Fast processing, global coverage | Credit/Debit Card, Bank Transfer, Apple Pay |
-| **Changelly** | Best rates, instant exchange | Crypto-to-crypto swaps |
-| **Banxa** | Low fees, high limits | Bank Transfer, Card Payments |
-| **Transak** | Web3 native, 150+ countries | Card, Bank Transfer, Mobile Money |
-| **Mercuryo** | Custodial wallet, easy KYC | Card Payments, Apple Pay |
-| **CoinGate** | Merchant-focused, invoicing | Multiple cryptocurrencies |
+**Depositi**
 
-**Withdrawal Management**
-- Admin-approved withdrawal requests
-- 2FA enforcement for security
-- Configurable withdrawal limits
-- Fee transparency
-- Email confirmation system
-- Transaction tracking
+- Depositi simulati (gateway placeholder)  
+- Integrazione pensata per provider esterni (es. MoonPay, Transak, ecc.)  
+- Segnatura delle transazioni nel DB con stato e reference esterna  
 
-### 🏆 **Staking & Rewards**
+**Prelievi**
 
-**Flexible Staking Options**
-- Multiple staking plans with varying APR rates
-- Flexible staking (withdraw anytime)
-- Locked staking (higher rewards)
-- Automatic daily reward calculations
-- Compound interest support
-- Complete staking history
+- Richiesta prelievo con:
+  - controllo saldo `available`
+  - spostamento fondi in `locked`
+  - 2FA obbligatoria
+  - limiti min/max per asset
+  - fee per asset
+- Workflow di approvazione admin:
+  - `pending` → `approved` / `rejected`
+  - in caso di `approved`: decremento `balance` e `locked`
+- Logging + email di notifica  
 
-**Example Staking Plans**
-```
-Flexible Plan    - 5% APR   - Withdraw anytime
-30-Day Lock      - 8% APR   - 30-day commitment
-90-Day Lock      - 12% APR  - 90-day commitment
-365-Day Lock     - 20% APR  - 1-year commitment
-```
+---
 
-### 🎁 **Promotional System**
+### 🏆 Staking & Rewards
 
-**Promo Code Management**
-- First deposit bonuses
-- Gift code redemption
-- Random reward campaigns
-- Usage tracking and analytics
-- Expiry date management
-- One-time and multi-use codes
+Modulo di staking con piani configurabili.
 
-### 📄 **KYC Verification**
+**Caratteristiche**
 
-**Identity Verification System**
-- Document upload (Passport, ID Card, Driver's License)
-- Front and back image capture
-- Admin review workflow
-- Approval/rejection with feedback
-- Verification status tracking
-- Compliance reporting
+- Staking products / plans con:
+  - APR
+  - durata (`lockDays`)
+  - asset di riferimento
+- Posizioni di staking utente con:
+  - amount
+  - data di apertura
+  - stato (`active` / `closed`)
+- Calcolo reward con interesse composto giornaliero  
+- Cron job giornaliero per:
+  - iterare sulle posizioni attive
+  - calcolare la reward maturata
+  - (in MVP) calcolo teorico testato; estendibile a snapshot reali  
 
-### 🎫 **Support System**
+**Esempio piani**
 
-**Customer Support**
-- Ticket-based support system
-- Priority levels (Low, Medium, High, Urgent)
-- Status tracking (Open, In Progress, Resolved, Closed)
-- Email notifications on updates
-- Support history and archives
+\`\`\`
+Flexible Plan   -  5% APR - withdraw anytime
+30-Day Lock     -  8% APR
+90-Day Lock     - 12% APR
+365-Day Lock    - 20% APR
+\`\`\`
 
-### 🛡️ **Administrative Dashboard**
+---
 
-**Platform Management**
+### 🎁 Promotional System
+
+- Gestione codice promo (schema nel DB)  
+- Bonus su primo deposito / campagne marketing  
+- Log utilizzi per utente e stato (usato / scaduto)  
+
+---
+
+### 📄 KYC Verification
+
+**KYC Layer**
+
+- Upload documenti (ID, passaporto, patente)  
+- Stato KYC: `pending`, `approved`, `rejected`  
+- Review manuale da parte dell’admin dal pannello /admin  
+- Note e motivazioni per il rifiuto  
+- Collegato al profilo utente e visibile nella UI di sicurezza  
+
+---
+
+### 🎫 Support System
+
+- Ticket-based support (user ↔ admin)  
+- Priorità: Low / Medium / High / Urgent  
+- Stato: Open / In Progress / Resolved / Closed  
+- Notifiche email e cronologia dei ticket  
+
+---
+
+### 🛡️ Administrative Dashboard
+
+Admin Panel completo accessibile via `/admin`.
 
 **User Management**
-- Complete user database with search and filters
-- Account status control (Active, Suspended, Deleted)
-- User activity monitoring
-- Balance overview and adjustments
-- KYC status verification
+
+- Lista utenti con filtri (email, stato, KYC)  
+- Dettaglio utente:
+  - saldi wallet
+  - login history
+  - stato KYC
+- Azioni admin:
+  - sospensione account (a livello applicativo)
+  - reset 2FA (opzionale)
+  - reset password / invito  
 
 **Transaction Oversight**
-- Withdrawal approval workflow
-- Deposit monitoring
-- Transaction history and analytics
-- Fraud detection alerts
-- Manual transaction processing
+
+- Lista prelievi:
+  - `pending` / `approved` / `rejected`
+- Approva / rifiuta prelievi:
+  - update saldo `locked` / `balance`
+  - log e email  
+- View depositi e transazioni interne  
 
 **System Configuration**
-- Coin management (enable/disable assets)
-- Fee structure configuration
-- Withdrawal limits and thresholds
-- Payment gateway settings
-- System-wide announcements
 
-**Analytics & Reporting**
-- Platform statistics dashboard
-- User growth metrics
-- Trading volume analysis
-- Revenue tracking
-- Deposit/withdrawal trends
+- Gestione coin:
+  - attivazione/disattivazione asset
+  - limiti min/max per depositi/prelievi
+  - fee  
+- Gestione piani staking  
+- Gestione promo codes  
 
-**Audit & Compliance**
-- Comprehensive system logs
-- Admin action tracking
-- Security event monitoring
-- Compliance reporting
-- Export capabilities
+**Logs & Audit**
+
+- Log di sistema (eventi tecnici rilevanti)  
+- Security log (login, 2FA, operazioni critiche)  
+- Audit delle azioni admin  
 
 ---
 
 ## 🏗️ Technical Architecture
 
-### **Technology Stack**
+### Technology Stack
 
 **Frontend**
-```
-React 19              - Modern UI framework with concurrent features
-TypeScript 5.6        - Type-safe development
-tRPC 11              - End-to-end typesafe APIs
-TanStack Query       - Powerful data synchronization
-Wouter               - Lightweight routing
-Tailwind CSS         - Utility-first styling
-```
+
+\`\`\`
+React (Vite)       – SPA moderna
+TypeScript         – type-safety end-to-end
+tRPC React Client  – chiamate RPC tipizzate
+TanStack Query     – caching e data fetching
+Wouter             – routing client-side
+Tailwind CSS       – styling utility-first
+\`\`\`
 
 **Backend**
-```
-Node.js 18+          - JavaScript runtime
-Express 4            - Web application framework
-tRPC 11              - API layer with full type safety
-Better-SQLite3       - Fast, embedded database
-Bcrypt               - Password hashing
-Nodemailer           - Email delivery
-OTPLib               - TOTP 2FA implementation
-```
 
-**Security**
-```
-HTTP-only Cookies    - Secure session management
-CORS Protection      - Cross-origin security
-Rate Limiting        - DDoS and brute force protection
-Input Validation     - Zod schema validation
-2FA Enforcement      - Multi-factor authentication
-Audit Logging        - Complete activity tracking
-```
+\`\`\`
+Node.js + TypeScript
+Express             – HTTP server
+tRPC                – layer API type-safe
+Better-SQLite3      – DB embedded performante
+Nodemailer          – invio email
+OTPLib              – 2FA TOTP
+\`\`\`
 
-### **System Architecture**
+**Sicurezza**
 
-```
+\`\`\`
+HTTP-only cookies   – sessioni sicure
+Rate limiting       – protezione brute-force
+Zod                 – validazione input
+2FA TOTP            – multi-factor authentication
+Audit logging       – tracking azioni critiche
+\`\`\`
+
+---
+
+### System Architecture
+
+\`\`\`
 ┌─────────────────────────────────────────────────────────┐
 │                    Client Layer                         │
-│  React SPA with tRPC Client + TanStack Query           │
+│  React SPA + tRPC Client + TanStack Query              │
 └─────────────────────────────────────────────────────────┘
                           │
                           │ HTTPS
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │                    API Layer                            │
-│  tRPC Router + Express Middleware                       │
+│  Express + tRPC Router                                  │
 │  - Authentication                                       │
-│  - Rate Limiting                                        │
-│  - Input Validation                                     │
-│  - Session Management                                   │
+│  - Rate Limiting                                       │
+│  - Input Validation                                    │
+│  - Session Management                                  │
 └─────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  Business Logic                         │
-│  9 Specialized Routers:                                 │
-│  - Auth Router        - Wallet Router                   │
-│  - Market Router      - Promo Router                    │
-│  - Staking Router     - Admin Router                    │
-│  - Support Router     - Transaction Router              │
-│  - Internal Router    - Payment Router                  │
+│  Routers tRPC:                                          │
+│  - auth         - wallet         - trading              │
+│  - staking      - promo          - admin                │
+│  - support      - transactions   - internal             │
+│  - payment (stub/gateways)                              │
 └─────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  Data Layer                             │
-│  SQLite Database with 15+ Tables                        │
-│  - Users & Sessions   - Wallets & Transactions          │
-│  - Orders & Trades    - Staking & Rewards               │
-│  - KYC & Documents    - Support Tickets                 │
-│  - Promo Codes        - Audit Logs                      │
+│  SQLite:                                                │
+│  - users, sessions                                      │
+│  - wallets, transactions                               │
+│  - orders, trades                                      │
+│  - stakingProducts, stakingPositions                   │
+│  - kyc, tickets, promos, logs                          │
 └─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              External Services                          │
-│  - Payment Gateways   - Email Service (SMTP)            │
-│  - Price Feeds        - Blockchain Networks             │
-└─────────────────────────────────────────────────────────┘
-```
+\`\`\`
 
 ---
 
 ## 📁 Project Structure
 
-```
-bitchange-exchange/
+\`\`\`
+exchange/
 │
-├── client/                          # Frontend application
+├── client/                          # Frontend (React + Vite)
 │   ├── src/
 │   │   ├── pages/                   # Page components
 │   │   │   ├── Home.tsx            # Landing page
@@ -296,7 +327,7 @@ bitchange-exchange/
 │   │   │   ├── Admin.tsx           # Admin dashboard
 │   │   │   ├── AdminKyc.tsx        # KYC review
 │   │   │   └── AdminLogs.tsx       # System logs
-│   │   ├── App.tsx                 # Application routing
+│   │   ├── App.tsx                 # Routing
 │   │   ├── trpc.ts                 # tRPC client setup
 │   │   └── notifications.tsx       # Toast notifications
 │   └── package.json
@@ -305,410 +336,177 @@ bitchange-exchange/
 │   ├── src/
 │   │   ├── routers.auth.ts         # Authentication & sessions
 │   │   ├── routers.wallet.ts       # Wallet operations
-│   │   ├── routers.market.ts       # Trading & orders
-│   │   ├── routers.promo.ts        # Promo codes
+│   │   ├── routers.trading.ts      # Trading & orders
 │   │   ├── routers.staking.ts      # Staking management
 │   │   ├── routers.admin.ts        # Admin operations
+│   │   ├── routers.promo.ts        # Promo codes
 │   │   ├── routers.support.ts      # Support tickets
 │   │   ├── routers.transactions.ts # Transaction history
 │   │   ├── routers.internal.ts     # Internal transfers
-│   │   ├── routers.payment.ts      # Payment gateways
-│   │   ├── routers.ts              # Main router
-│   │   ├── db.ts                   # Database schema
+│   │   ├── routers.payment.ts      # Payment gateways (stub/adapters)
+│   │   ├── routers.ts              # Main app router
+│   │   ├── db.ts                   # Database schema & init
+│   │   ├── trading.ts              # Matching engine & schemas
 │   │   ├── session.ts              # Session management
 │   │   ├── email.ts                # Email service
-│   │   ├── logger.ts               # Logging system
 │   │   ├── twoFactor.ts            # 2FA management
-│   │   ├── kyc.ts                  # KYC processing
+│   │   ├── kyc.ts                  # KYC helpers
 │   │   ├── loginEvents.ts          # Login tracking
-│   │   ├── marketPrices.ts         # Price updates
-│   │   ├── depositsSchema.ts       # Deposit validation
-│   │   └── paymentGateways/        # Payment integrations
-│   │       ├── moonpay.ts          # MoonPay adapter
-│   │       ├── types.ts            # Gateway interfaces
-│   │       └── index.ts            # Gateway registry
+│   │   └── logger.ts               # Logging utilities
 │   └── package.json
 │
-├── docs/                            # Documentation
-│   ├── API.md                      # API documentation
-│   ├── DEPLOYMENT.md               # Deployment guide
-│   └── SECURITY.md                 # Security practices
-│
-└── README.md                        # This file
-```
+└── README.md                        # Project documentation
+\`\`\`
 
 ---
 
 ## 🚀 Getting Started
 
-### **Prerequisites**
+### Prerequisites
 
-- **Node.js** 18.0.0 or higher
-- **npm** 9.0.0 or higher
-- **Git** for version control
+- **Node.js** 18.0.0 or higher  
+- **npm** 9.0.0 or higher  
+- **Git**  
 
-### **Installation**
+### Installation
 
 **1. Clone the repository**
-```bash
+
+\`\`ash
 git clone https://github.com/onboarding92/exchange.git
 cd exchange
-```
+\`\`\`
 
 **2. Install dependencies**
-```bash
-# Install server dependencies
+
+\`\`ash
+# Server
 cd server
 npm install
 
-# Install client dependencies
+# Client
 cd ../client
 npm install
-```
+\`\`\`
 
-**3. Configure environment variables**
+### Environment Configuration
 
-Create `server/.env` with the following configuration:
+Crea il file `server/.env`:
 
-```env
-# Database Configuration
+\`\`\env
 DB_FILE=./exchange.db
 
-# Session Security
 SESSION_SECRET=your-secure-random-secret-key-min-32-chars
 
-# Email Configuration (SMTP)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-app-specific-password
-SMTP_FROM=BitChange <noreply@bitchange.com>
+SMTP_FROM=BitChange <noreply@bitchange.money>
 
-# Payment Gateway Configuration (Optional)
-MOONPAY_API_KEY=pk_test_your_key
-MOONPAY_SECRET_KEY=sk_test_your_secret
-MOONPAY_WEBHOOK_SECRET=whsec_your_webhook_secret
-MOONPAY_ENV=sandbox
-
-# Server Configuration
 PORT=4000
 CLIENT_URL=http://localhost:5173
-```
+\`\`\`
 
-**4. Start the application**
+### Avvio in sviluppo
 
-```bash
-# Terminal 1 - Start backend server
+**Backend**
+
+\`\`ash
 cd server
 npm run dev
+\`\`\`
 
-# Terminal 2 - Start frontend client
+**Frontend**
+
+\`\`ash
 cd client
 npm run dev
-```
+\`\`\`
 
-**5. Access the platform**
+Apri nel browser:
 
-Open your browser and navigate to:
-```
+\`\`	ext
 http://localhost:5173
-```
+\`\`\`
 
 ---
 
 ## 👥 Demo Accounts
 
-The platform includes pre-configured demo accounts for testing:
+**User**
 
-### **User Account**
-```
+\`\`	ext
 Email:    demo@bitchange.money
 Password: demo123
-```
-**Features:** Full access to wallet, trading, staking, deposits, and withdrawals
+\`\`\`
 
-### **Administrator Account**
-```
+**Admin**
+
+\`\`	ext
 Email:    admin@bitchange.money
 Password: admin123
-```
-**Features:** Complete administrative access including user management, transaction approval, KYC review, and system configuration
+\`\`\`
 
 ---
 
 ## 📧 Email Configuration
 
-BitChange uses SMTP for email delivery. Configure your email service in the `.env` file.
+BitChange usa SMTP per le email.
 
-### **Gmail Configuration**
+Per Gmail:
 
-1. Enable 2-Step Verification in your Google Account
-2. Generate an App Password at: https://myaccount.google.com/apppasswords
-3. Use the generated 16-character password in `SMTP_PASS`
+1. Abilita 2-Step Verification  
+2. Crea un App Password  
+3. Usa la password generata in `SMTP_PASS`  
 
-### **Other SMTP Providers**
-
-The platform supports any SMTP-compatible email service:
-- **SendGrid** - High deliverability, analytics
-- **Mailgun** - Developer-friendly API
-- **Amazon SES** - Cost-effective, scalable
-- **Postmark** - Transactional email specialist
-
----
-
-## 🔧 Configuration
-
-### **Cryptocurrency Support**
-
-Add or modify supported cryptocurrencies in `server/src/db.ts`:
-
-```typescript
-const coins = [
-  { symbol: 'BTC', name: 'Bitcoin', network: 'Bitcoin', enabled: 1 },
-  { symbol: 'ETH', name: 'Ethereum', network: 'Ethereum', enabled: 1 },
-  // Add more coins...
-];
-```
-
-### **Trading Fees**
-
-Configure trading fees in the admin panel or directly in the database:
-
-```sql
-UPDATE coins SET tradingFee = 0.001 WHERE symbol = 'BTC';  -- 0.1% fee
-```
-
-### **Withdrawal Limits**
-
-Set withdrawal limits per cryptocurrency:
-
-```sql
-UPDATE coins 
-SET minWithdrawal = 0.001, maxWithdrawal = 10.0 
-WHERE symbol = 'BTC';
-```
-
-### **Staking Plans**
-
-Create custom staking plans in `server/src/db.ts`:
-
-```typescript
-const stakingPlans = [
-  {
-    name: 'Flexible',
-    asset: 'ETH',
-    apr: 5.0,
-    lockDays: 0,
-    minAmount: 0.1,
-    enabled: 1
-  },
-  // Add more plans...
-];
-```
-
----
-
-## 🔒 Security Best Practices
-
-### **Production Deployment**
-
-Before deploying to production, ensure:
-
-1. **Environment Variables**
-   - Use strong, randomly generated secrets
-   - Never commit `.env` files to version control
-   - Rotate secrets regularly
-
-2. **Database Security**
-   - Enable database encryption
-   - Regular backups with off-site storage
-   - Implement access controls
-
-3. **HTTPS/SSL**
-   - Use SSL certificates (Let's Encrypt recommended)
-   - Enforce HTTPS for all connections
-   - Enable HSTS headers
-
-4. **Rate Limiting**
-   - Configure appropriate rate limits
-   - Implement IP-based throttling
-   - Monitor for abuse patterns
-
-5. **Session Management**
-   - Set appropriate session timeouts
-   - Implement session rotation
-   - Clear sessions on logout
-
-6. **Monitoring**
-   - Set up error tracking (Sentry, Rollbar)
-   - Implement uptime monitoring
-   - Configure security alerts
-
----
-
-## 📊 Performance
-
-### **Optimization Features**
-
-- **Database Indexing** - Optimized queries with proper indexes
-- **Connection Pooling** - Efficient database connection management
-- **Query Caching** - TanStack Query caching on frontend
-- **Lazy Loading** - Code splitting for faster initial load
-- **Asset Optimization** - Minified and compressed assets
-
-### **Scalability**
-
-The platform is designed to scale horizontally:
-
-- **Stateless API** - Easy to add more server instances
-- **Database Replication** - Support for read replicas
-- **Load Balancing** - Compatible with standard load balancers
-- **Caching Layer** - Ready for Redis integration
+Sono supportati anche:
+- SendGrid  
+- Mailgun  
+- Amazon SES  
+- Postmark  
 
 ---
 
 ## 🧪 Testing
 
-### **Run Tests**
+Esegui i test backend:
 
-```bash
+\`\`ash
 cd server
 npm test
-```
+\`\`\`
 
-### **Test Coverage**
-
-The platform includes comprehensive test coverage for:
-- Authentication flows
-- Wallet operations
-- Trading logic
-- Admin functions
-- Security features
+La suite copre:
+- autenticazione + login/2FA  
+- wallet + locked/available  
+- trading (ordini, matching, trades)  
+- staking (reward & cron)  
+- admin (approvazione withdrawal, login, ecc.)  
 
 ---
 
-## 📚 API Documentation
+## 📦 Build & Deployment
 
-### **tRPC Endpoints**
+**Build produzione**
 
-The platform exposes the following tRPC routers:
-
-```typescript
-auth         // Authentication & sessions
-wallet       // Wallet operations
-market       // Trading & orders
-promo        // Promo code redemption
-staking      // Staking management
-admin        // Administrative functions
-support      // Support tickets
-transactions // Transaction history
-internal     // Internal transfers
-payment      // Payment gateway integration
-```
-
-### **Type Safety**
-
-All API calls are fully type-safe thanks to tRPC:
-
-```typescript
-// Frontend usage - fully typed!
-const { data: balance } = trpc.wallet.getBalance.useQuery();
-const deposit = trpc.wallet.deposit.useMutation();
-```
-
----
-
-## 🚢 Deployment
-
-### **Production Build**
-
-```bash
-# Build server
+\`\`ash
 cd server
 npm run build
 
-# Build client
 cd ../client
 npm run build
-```
+\`\`\`
 
-### **Deployment Options**
-
-**VPS Deployment**
-- DigitalOcean Droplets
-- AWS EC2
-- Linode
-- Vultr
-
-**Platform as a Service**
-- Heroku
-- Railway
-- Render
-- Fly.io
-
-**Containerized Deployment**
-- Docker
-- Kubernetes
-- Docker Compose
-
----
-
-## 🤝 Support
-
-### **Documentation**
-
-Comprehensive documentation is available in the `docs/` directory:
-- API Reference
-- Deployment Guide
-- Security Best Practices
-- User Manual
-- Admin Guide
-
-### **Community**
-
-- **GitHub Issues** - Bug reports and feature requests
-- **Discussions** - Community support and questions
-- **Email** - support@bitchange.com
+Puoi distribuire su:
+- VPS (DigitalOcean, AWS, ecc.)  
+- PaaS (Railway, Render, Fly.io, ecc.)  
+- Container (Docker / Kubernetes)  
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Licensed under the **MIT License**.  
+Use at your own risk; this project is for educational and demo purposes and **not** audited for production-grade financial use.
 
----
-
-## 🙏 Acknowledgments
-
-Built with industry-leading open-source technologies:
-
-- **tRPC** - Type-safe API framework
-- **React** - UI library
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling framework
-- **Better-SQLite3** - Database engine
-- **OTPLib** - 2FA implementation
-- **Nodemailer** - Email delivery
-
----
-
-**The authors and contributors are not responsible for any misuse of this software or any financial losses incurred.**
-
----
-
-## 🌟 Features at a Glance
-
-| Feature | Status | Description |
-|---------|--------|-------------|
-| Multi-Asset Wallet | ✅ | 15+ cryptocurrencies supported |
-| Two-Factor Auth | ✅ | TOTP-based 2FA with Google Authenticator |
-| Trading Platform | ✅ | Market orders with instant execution |
-| Staking System | ✅ | Multiple plans with competitive APR |
-| Payment Gateways | ✅ | 6 integrated fiat on-ramp providers |
-| KYC Verification | ✅ | Document upload and admin review |
-| Admin Dashboard | ✅ | Complete platform management |
-| Support System | ✅ | Ticket-based customer support |
-| Email Notifications | ✅ | SMTP-based email delivery |
-| Audit Logging | ✅ | Comprehensive activity tracking |
-| Rate Limiting | ✅ | DDoS and brute force protection |
-| Session Management | ✅ | Secure HTTP-only cookies |
