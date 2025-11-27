@@ -7,6 +7,22 @@ db.pragma("journal_mode = WAL");
 // ---- TABLES ----
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS emailVerifications (
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS passwordResets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    token TEXT NOT NULL,
+    expiresAt INTEGER NOT NULL
+  )
+`).run();
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    expiresAt INTEGER NOT NULL
+  )
+`).run();
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT UNIQUE NOT NULL,
   passwordHash TEXT NOT NULL,

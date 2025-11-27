@@ -1,3 +1,6 @@
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 import { Route, Switch } from "wouter";
 
 import ErrorBoundary from "./components/ErrorBoundary";

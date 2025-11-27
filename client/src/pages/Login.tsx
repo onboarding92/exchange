@@ -4,6 +4,9 @@ import { trpc } from "../trpc";
 import { useLocation } from "wouter";
 
 export default function Login() {
+<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
+  Forgot password?
+</p>
   const { notify } = useNotifications();
  {
   const [, setLocation] = useLocation();
@@ -24,6 +27,9 @@ export default function Login() {
   return (
     <div style={{ maxWidth: 400 }}>
       <h2>Login</h2>
+<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
+  Forgot password?
+</p>
       <div style={{ display: "grid", gap: 8 }}>
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
         <input
@@ -34,6 +40,9 @@ export default function Login() {
         />
         <button onClick={() => loginMutation.mutate({ email, password })}>
           {loginMutation.isLoading ? "Logging in..." : "Login"}
+<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
+  Forgot password?
+</p>
         </button>
         {error && <p style={{ color: "salmon" }}>{error}</p>}
       </div>
