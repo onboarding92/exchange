@@ -42,8 +42,10 @@ type WalletRow = {
 
 /**
  * Crea le tabelle base per il trading (ordini + trade eseguiti).
+ * Nei test, forza lo schema trades aggiornato con DROP TABLE IF EXISTS.
  */
 export function ensureTradingSchema() {
+  // Tabella orders
   db.prepare(
     `
     CREATE TABLE IF NOT EXISTS orders (
@@ -63,6 +65,16 @@ export function ensureTradingSchema() {
   `
   ).run();
 
+  // Nei test, assicuriamoci di non avere una vecchia tabella trades
+  if (process.env.NODE_ENV === "test") {
+    db.prepare(
+      `
+      DROP TABLE IF EXISTS trades
+    `
+    ).run();
+  }
+
+  // Tabella trades (schema nuovo)
   db.prepare(
     `
     CREATE TABLE IF NOT EXISTS trades (
@@ -115,7 +127,12 @@ function getOrCreateWallet(userId: number, asset: string): WalletRow {
   };
 }
 
-function updateWallet(userId: number, asset: string, deltaBalance: number, deltaLocked: number) {
+function updateWallet(
+  userId: number,
+  asset: string,
+  deltaBalance: number,
+  deltaLocked: number
+) {
   const w = getOrCreateWallet(userId, asset);
   const locked = (w.locked ?? 0) + deltaLocked;
   const balance = w.balance + deltaBalance;
