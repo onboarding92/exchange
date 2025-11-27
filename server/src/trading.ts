@@ -32,6 +32,14 @@ export type TradeRow = {
   createdAt: string;
 };
 
+type WalletRow = {
+  userId: number;
+  asset: string;
+  balance: number;
+  locked: number | null;
+  available: number | null;
+};
+
 /**
  * Crea le tabelle base per il trading (ordini + trade eseguiti).
  */
@@ -76,10 +84,59 @@ export function ensureTradingSchema() {
 // Inizializza lo schema trading all'import del modulo.
 ensureTradingSchema();
 
+function getOrCreateWallet(userId: number, asset: string): WalletRow {
+  const row = db
+    .prepare(
+      `
+      SELECT userId, asset, balance, locked, available
+      FROM wallets
+      WHERE userId = ? AND asset = ?
+    `
+    )
+    .get(userId, asset) as WalletRow | undefined;
+
+  if (row) {
+    return row;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO wallets (userId, asset, balance, locked, available)
+    VALUES (?, ?, 0, 0, 0)
+  `
+  ).run(userId, asset);
+
+  return {
+    userId,
+    asset,
+    balance: 0,
+    locked: 0,
+    available: 0,
+  };
+}
+
+function updateWallet(userId: number, asset: string, deltaBalance: number, deltaLocked: number) {
+  const w = getOrCreateWallet(userId, asset);
+  const locked = (w.locked ?? 0) + deltaLocked;
+  const balance = w.balance + deltaBalance;
+  const safeLocked = locked < 0 ? 0 : locked;
+  const safeBalance = balance;
+  const available = safeBalance - safeLocked;
+
+  db.prepare(
+    `
+    UPDATE wallets
+    SET balance = ?, locked = ?, available = ?
+    WHERE userId = ? AND asset = ?
+  `
+  ).run(safeBalance, safeLocked, available, userId, asset);
+}
+
 /**
  * Matching engine minimale:
  * - funziona solo per ordini LIMIT già inseriti
- * - non tocca ancora i wallet (solo ordini + trades)
+ * - aggiorna ordini + trades
+ * - aggiorna i wallet interni di buyer/seller (balance/locked/available)
  */
 export function matchOrder(orderId: number) {
   const order = db
@@ -148,7 +205,10 @@ export function matchOrder(orderId: number) {
     const sellOrderId = isBuy ? other.id : order.id;
     const takerUserId = order.userId;
     const makerUserId = other.userId;
+    const buyerUserId = isBuy ? order.userId : other.userId;
+    const sellerUserId = isBuy ? other.userId : order.userId;
 
+    // Inserisci trade
     db.prepare(
       `
       INSERT INTO trades (
@@ -172,7 +232,7 @@ export function matchOrder(orderId: number) {
       nowIso
     );
 
-    // aggiorna filled dell'ordine principale
+    // Aggiorna ordini (filled/status)
     orderFilled += tradeAmount;
     remaining = Math.max(0, order.amount - orderFilled);
 
@@ -189,7 +249,6 @@ export function matchOrder(orderId: number) {
       order.id
     );
 
-    // aggiorna filled dell'ordine opposto
     const newOtherFilled = otherFilled + tradeAmount;
     db.prepare(
       `
@@ -203,5 +262,18 @@ export function matchOrder(orderId: number) {
       nowIso,
       other.id
     );
+
+    // ==========================
+    // Aggiorna wallet buyer/seller
+    // ==========================
+    const cost = tradeAmount * tradePrice;
+
+    // Buyer: paga quote (USDT), riceve base (BTC)
+    updateWallet(buyerUserId, quote, -cost, -cost); // balance-, locked-
+    updateWallet(buyerUserId, base, tradeAmount, 0); // balance+
+
+    // Seller: vende base, riceve quote
+    updateWallet(sellerUserId, base, -tradeAmount, -tradeAmount); // balance-, locked-
+    updateWallet(sellerUserId, quote, cost, 0); // balance+
   }
 }
