@@ -194,4 +194,25 @@ describe("admin.approveWithdrawal", () => {
       TRPCError
     );
   });
+
+it("rifiuta la chiamata se l'utente non è admin (FORBIDDEN)", async () => {
+  // creiamo un caller con ruolo 'user' invece che 'admin'
+  const ctx: any = {
+    user: {
+      id: 123,
+      email: "user@example.com",
+      role: "user",
+      twoFactorEnabled: false,
+    },
+    sessionId: "test-session-user",
+    req: {} as any,
+    res: {} as any,
+    ip: "127.0.0.1",
+  };
+  const caller = appRouter.createCaller(ctx);
+
+  await expect(
+    caller.wallet.approveWithdrawal({ id: 1 })
+  ).rejects.toBeInstanceOf(TRPCError);
+});
 });
