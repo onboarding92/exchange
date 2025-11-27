@@ -42,15 +42,27 @@ type TradeRow = {
 
 describe("trading integration (SQLite reale)", () => {
   beforeEach(() => {
-    // Pulisce tabelle coinvolte
-    db.prepare("DELETE FROM trades").run();
-    db.prepare("DELETE FROM orders").run();
-    db.prepare("DELETE FROM wallets").run();
+    // Pulisce tabelle coinvolte (se non esistono, le CREATE in trading.ts le creeranno)
+    try {
+      db.prepare("DELETE FROM trades").run();
+    } catch {
+      // ignore
+    }
+    try {
+      db.prepare("DELETE FROM orders").run();
+    } catch {
+      // ignore
+    }
+    try {
+      db.prepare("DELETE FROM wallets").run();
+    } catch {
+      // ignore
+    }
   });
 
   it("matcha un BUY e un SELL e aggiorna wallets + trades", () => {
-    // Se la tabella trades non ha ancora la colonna buyOrderId,
-    // significa che lo schema non è quello nuovo → saltiamo di fatto il test.
+    // Controlla lo schema della tabella trades:
+    // se non ha buyOrderId, significa che stiamo girando su uno schema legacy.
     const columns = db
       .prepare("PRAGMA table_info(trades)")
       .all() as { name: string }[];
@@ -62,7 +74,6 @@ describe("trading integration (SQLite reale)", () => {
       );
       return;
     }
-
 
     const now = new Date().toISOString();
 
@@ -149,10 +160,16 @@ describe("trading integration (SQLite reale)", () => {
     const buyOrder = orders.find((o) => o.id === buyId)!;
     const sellOrder = orders.find((o) => o.id === sellId)!;
 
-    expect(buyOrder.status === "filled" || buyOrder.status === "partially_filled").toBe(true);
+    expect(
+      buyOrder.status === "filled" || buyOrder.status === "partially_filled"
+    ).toBe(true);
     expect(buyOrder.filledAmount).toBeCloseTo(0.5);
 
-    expect(sellOrder.status === "open" || sellOrder.status === "partially_filled" || sellOrder.status === "filled").toBe(true);
+    expect(
+      sellOrder.status === "open" ||
+        sellOrder.status === "partially_filled" ||
+        sellOrder.status === "filled"
+    ).toBe(true);
     expect(sellOrder.filledAmount).toBeCloseTo(0.5);
 
     // Controlla wallets aggiornati
