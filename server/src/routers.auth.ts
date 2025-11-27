@@ -396,6 +396,26 @@ export const authRouter = router({
         throw new TRPCError({ code: "UNAUTHORIZED" });
       }
 
+const lastSubmit = db.prepare("SELECT MAX(createdAt) as ts FROM userKycDocuments WHERE userId=?").get(ctx.user.id) as { ts?: string };
+
+if (lastSubmit?.ts) {
+
+  const diff = Date.now() - new Date(lastSubmit.ts).getTime();
+
+  if (diff < 5 * 60 * 1000) {
+
+    throw new TRPCError({
+
+      code: "TOO_MANY_REQUESTS",
+
+      message: "You can only submit KYC every 5 minutes.",
+
+    });
+
+  }
+
+}
+
       submitKycDocuments(ctx.user.id, input.documents);
       logInfo("KYC submitted", {
         userId: ctx.user.id,

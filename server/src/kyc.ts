@@ -1,6 +1,13 @@
+import crypto from "crypto";
 import { db } from "./db";
 
 export type KycStatus = "unverified" | "pending" | "verified" | "rejected";
+function secureKey(original: string) {
+
+  return crypto.createHash("sha256").update(original + Date.now()).digest("hex");
+
+}
+
 
 export type KycDocumentRecord = {
   id: number;
@@ -60,7 +67,7 @@ export function submitKycDocuments(
     );
 
     for (const doc of documents) {
-      stmt.run(userId, doc.type, doc.fileKey, "pending", now);
+      stmt.run(userId, doc.type, secureKey(doc.fileKey), "pending", now);
     }
 
     // Update user KYC status to pending
