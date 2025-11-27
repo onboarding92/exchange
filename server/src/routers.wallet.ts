@@ -330,4 +330,120 @@ export const walletRouter = router({
 
       return { success: true };
     }),
+
+  // Admin: approva un withdrawal pendente e scarica i fondi dal wallet (locked -> fuori exchange)
+  approveWithdrawal: authedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      if (!ctx.user || ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      }
+
+      const withdrawal = db
+        .prepare(
+          `
+          SELECT id, userId, asset, amount, fee, status
+          FROM withdrawals
+          WHERE id = ?
+        `
+        )
+        .get(input.id) as
+        | {
+            id: number;
+            userId: number;
+            asset: string;
+            amount: number;
+            fee?: number | null;
+            status: string;
+          }
+        | undefined;
+
+      if (!withdrawal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Withdrawal not found",
+        });
+      }
+
+      if (withdrawal.status !== "pending") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Withdrawal is not pending.",
+        });
+      }
+
+      const total = withdrawal.amount + (withdrawal.fee ?? 0);
+
+      const wallet = db
+        .prepare(
+          `
+          SELECT balance, locked, available
+          FROM wallets
+          WHERE userId = ? AND asset = ?
+        `
+        )
+        .get(withdrawal.userId, withdrawal.asset) as
+        | { balance: number; locked: number | null; available: number | null }
+        | undefined;
+
+      if (!wallet) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Wallet not found for asset.",
+        });
+      }
+
+      const locked = wallet.locked ?? 0;
+      if (locked < total) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Insufficient locked funds to approve withdrawal.",
+        });
+      }
+
+      const newBalance = wallet.balance - total;
+      const newLocked = locked - total;
+      const newAvailable =
+        wallet.available != null ? wallet.available : newBalance - newLocked;
+
+      const now = new Date().toISOString();
+
+      const updateWalletRes = db
+        .prepare(
+          `
+          UPDATE wallets
+          SET balance = ?, locked = ?, available = ?
+          WHERE userId = ? AND asset = ?
+        `
+        )
+        .run(
+          newBalance,
+          newLocked,
+          newAvailable,
+          withdrawal.userId,
+          withdrawal.asset
+        ) as any;
+
+      if (!updateWalletRes || updateWalletRes.changes !== 1) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update wallet on approveWithdrawal.",
+        });
+      }
+
+      db.prepare(
+        `
+        UPDATE withdrawals
+        SET status = 'approved', updatedAt = ?
+        WHERE id = ?
+      `
+      ).run(now, withdrawal.id);
+
+      return { ok: true };
+    }),
+
 });
