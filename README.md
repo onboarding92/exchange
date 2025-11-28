@@ -588,6 +588,3 @@ For production:
 ## 📄 License
 
 This project is licensed under the **MIT License**.  
-It is intended for educational and demo purposes and has **not** been audited for real‑world financial use.
-
-Use it responsibly and at your own risk.
