@@ -1,109 +1,79 @@
 import Database from "better-sqlite3";
+import bcrypt from "bcryptjs";
+
 export const db = new Database("exchange.db");
 
+// Basic pragmas
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
-//
-// ========== USERS =========
-//
+// ========== USERS TABLE ==========
 db.prepare(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
-  passwordHash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'user',
-  kycStatus TEXT NOT NULL DEFAULT 'unverified',
-  forcePasswordChange INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL
-)
-`).run();
-
-//
-// ========== SESSIONS =========
-//
-db.prepare(`
-CREATE TABLE IF NOT EXISTS sessions (
-  token TEXT PRIMARY KEY,
-  userId INTEGER NOT NULL,
-  email TEXT NOT NULL,
-  role TEXT NOT NULL,
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-)
-`).run();
-
-//
-// ========== EMAIL VERIFICATIONS =========
-//
-db.prepare(`
-CREATE TABLE IF NOT EXISTS emailVerifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId INTEGER NOT NULL,
-  token TEXT UNIQUE NOT NULL,
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-)
-`).run();
-
-//
-// ========== PASSWORD RESET TOKENS =========
-//
-db.prepare(`
-CREATE TABLE IF NOT EXISTS passwordResets (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId INTEGER NOT NULL,
-  token TEXT UNIQUE NOT NULL,
-  expiresAt TEXT NOT NULL,
-  used INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-)
-`).run();
-
-//
-// ========== KYC DOCUMENTS =========
-//
-db.prepare(`
-CREATE TABLE IF NOT EXISTS userKycDocuments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId INTEGER NOT NULL,
-  frontUrl TEXT,
-  backUrl TEXT,
-  selfieUrl TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
-  createdAt TEXT NOT NULL,
-  updatedAt TEXT,
-  note TEXT,
-  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-)
-`).run();
-
-export function seedIfEmpty() {
-  const row = db.prepare("SELECT COUNT(*) AS c FROM users").get() as { c: number };
-  if (row.c > 0) return;
-
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO users (email, passwordHash, role, kycStatus, createdAt)
-    VALUES ('demo@bitchange.money', '$2a$10$demo', 'user', 'unverified', ?)
-  `).run(now);
-
-  db.prepare(`
-    INSERT INTO users (email, passwordHash, role, kycStatus, createdAt)
-    VALUES ('admin@bitchange.money', '$2a$10$admin', 'admin', 'unverified', ?)
-  `).run(now);
-}
-
-seedIfEmpty();
-
-// ========== PASSWORD HISTORY (avoid recent password reuse) ==========
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS passwordHistory (
+  CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER NOT NULL,
-    passwordHash TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user',
+    kycStatus TEXT NOT NULL DEFAULT 'unverified',
     createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`).run();
+
+// ========== SESSIONS TABLE ==========
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    userId INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    userAgent TEXT,
+    ip TEXT,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
   )
 `).run();
+
+/**
+ * Seed initial demo/admin users if the table is empty.
+ * This is required by the test suite.
+ */
+export function seedIfEmpty() {
+  const row = db
+    .prepare("SELECT COUNT(*) as c FROM users")
+    .get() as { c: number };
+
+  if (row.c > 0) return;
+
+  const now = new Date().toISOString();
+
+  const demoPassword = process.env.DEMO_PASSWORD || "demo123";
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+
+  const demoHash = bcrypt.hashSync(demoPassword, 10);
+  const adminHash = bcrypt.hashSync(adminPassword, 10);
+
+  const insertUser = db.prepare(
+    "INSERT INTO users (email,password,role,kycStatus,createdAt,updatedAt) VALUES (?,?,?,?,?,?)"
+  );
+
+  insertUser.run(
+    "demo@bitchange.money",
+    demoHash,
+    "user",
+    "verified",
+    now,
+    now
+  );
+  insertUser.run(
+    "admin@bitchange.money",
+    adminHash,
+    "admin",
+    "verified",
+    now,
+    now
+  );
+}
+
+// Run seeding on module load
+seedIfEmpty();
