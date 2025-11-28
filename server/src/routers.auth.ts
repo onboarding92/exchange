@@ -132,3 +132,33 @@ export const authRouter = router({
 
 
 });
+
+// ============================
+// SMART LOGIN ALERTS
+// ============================
+
+import { sendEmail } from "../utils/mailer";
+
+function getFingerprint(ctx: any) {
+  return `${ctx.ip || "0.0.0.0"}|${ctx.userAgent || "unknown"}`;
+}
+
+async function maybeSendLoginAlert(ctx: any) {
+  const fingerprint = getFingerprint(ctx);
+
+  const last = db.prepare(
+    "SELECT userAgent, ip FROM sessions WHERE userId=? ORDER BY createdAt DESC LIMIT 1"
+  ).get(ctx.user.id);
+
+  const isNewDevice =
+    !last || last.userAgent !== ctx.userAgent || last.ip !== ctx.ip;
+
+  if (isNewDevice) {
+    await sendEmail(ctx.user.email, "New login detected", `
+      A new login has been detected:
+      IP: ${ctx.ip}
+      Device: ${ctx.userAgent}
+      Time: ${new Date().toISOString()}
+    `);
+  }
+}
