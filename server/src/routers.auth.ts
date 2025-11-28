@@ -1,4 +1,46 @@
 
+// LOGIN ALERT START
+import { sendEmail } from "./mailer.js"; // already exists
+
+function getFingerprint(requestHeaders) {
+  const ip = requestHeaders["x-real-ip"] || 
+             requestHeaders["x-forwarded-for"] ||
+             "unknown";
+
+  const agent = requestHeaders["user-agent"] || "unknown";
+  return { ip, agent };
+}
+
+function storeDevice(userId, fp) {
+  db.prepare(
+    "INSERT INTO loginDevices (userId, ip, agent, createdAt) VALUES (?,?,?,?)"
+  ).run(userId, fp.ip, fp.agent, new Date().toISOString());
+}
+
+function isNewDevice(userId, fp) {
+  const rows = db.prepare(
+    "SELECT * FROM loginDevices WHERE userId=? AND ip=? AND agent=?"
+  ).all(userId, fp.ip, fp.agent);
+  return rows.length === 0;
+}
+
+function sendLoginAlert(email, fp, isNew) {
+  const title = isNew ? "New Device Login Detected" : "Login Alert";
+  const msg = `
+  A login to your account occurred:
+
+  IP: ${fp.ip}
+  Device: ${fp.agent}
+  New Device: ${isNew ? "YES" : "NO"}
+
+  If this wasn't you, secure your account immediately.
+  `;
+
+  sendEmail(email, title, msg);
+}
+// LOGIN ALERT END
+
+
 // PASSWORD HISTORY START
 import { db } from "./db.js";
 import crypto from "crypto";

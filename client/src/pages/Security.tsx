@@ -373,3 +373,12 @@ export default function Security() {
     </div>
   );
 }
+
+
+// ========== TFA TEMP UI ==========
+export function TfaBox() {
+  return <div style={{padding:20}}>
+    <h3>Two-Factor Authentication</h3>
+    <button onClick={() => alert("TFA enable placeholder")}>Enable TFA</button>
+  </div>
+}
