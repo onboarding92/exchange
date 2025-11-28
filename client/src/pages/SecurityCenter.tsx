@@ -4,6 +4,7 @@ import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { UserNav } from "@/components/UserNav";
 import {
+import { trpc } from "../trpc";
   Card,
   CardHeader,
   CardTitle,
@@ -375,5 +376,132 @@ export default function SecurityCenter() {
         </Card>
       </main>
     </div>
+  );
+}
+
+// =======================================================
+// Sessions / Device management section (Security Center)
+// =======================================================
+
+export function SessionsManagementSection() {
+  const { data, isLoading, refetch } = trpc.auth.sessionsList.useQuery();
+  const revokeSessionMutation = trpc.auth.revokeSession.useMutation({
+    onSuccess: () => {
+      // Simple UX: reload list after revoke
+      refetch();
+      if (typeof window !== "undefined") {
+        window.alert("Session revoked successfully.");
+      }
+    },
+    onError: (err) => {
+      console.error("revokeSession error", err);
+      if (typeof window !== "undefined") {
+        window.alert("Failed to revoke session: " + (err?.message ?? "Unknown error"));
+      }
+    },
+  });
+
+  const revokeOthersMutation = trpc.auth.revokeOtherSessions.useMutation({
+    onSuccess: () => {
+      refetch();
+      if (typeof window !== "undefined") {
+        window.alert("All other sessions revoked.");
+      }
+    },
+    onError: (err) => {
+      console.error("revokeOtherSessions error", err);
+      if (typeof window !== "undefined") {
+        window.alert("Failed to revoke other sessions: " + (err?.message ?? "Unknown error"));
+      }
+    },
+  });
+
+  const sessions = data ?? [];
+
+  const handleRevoke = (token: string) => {
+    if (typeof window !== "undefined") {
+      const ok = window.confirm("Do you really want to revoke this session?");
+      if (!ok) return;
+    }
+    revokeSessionMutation.mutate({ token });
+  };
+
+  const handleRevokeOthers = () => {
+    if (typeof window !== "undefined") {
+      const ok = window.confirm("Do you want to revoke all other sessions?");
+      if (!ok) return;
+    }
+    revokeOthersMutation.mutate();
+  };
+
+  return (
+    <section className="mt-8 border rounded-lg p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold">Active sessions</h2>
+        <button
+          className="px-3 py-1 text-sm rounded bg-red-600 text-white disabled:opacity-60"
+          onClick={handleRevokeOthers}
+          disabled={revokeOthersMutation.isLoading || isLoading}
+        >
+          Log out other devices
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-500">Loading sessions...</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-gray-500">No active sessions found.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2 pr-4">Created at</th>
+                <th className="text-left py-2 pr-4">Token</th>
+                <th className="text-left py-2 pr-4">Current</th>
+                <th className="text-left py-2 pr-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s: any) => (
+                <tr key={s.token} className="border-b last:border-0">
+                  <td className="py-2 pr-4 whitespace-nowrap">
+                    {s.createdAt}
+                  </td>
+                  <td className="py-2 pr-4 max-w-xs overflow-hidden text-ellipsis">
+                    <code className="text-xs break-all">{s.token}</code>
+                  </td>
+                  <td className="py-2 pr-4">
+                    {s.isCurrent ? (
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                        Current device
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">Other</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4 text-right">
+                    {!s.isCurrent && (
+                      <button
+                        className="px-2 py-1 text-xs rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-60"
+                        onClick={() => handleRevoke(s.token)}
+                        disabled={revokeSessionMutation.isLoading}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* NOTE:
+         * To use this section inside your security page,
+         * just render <SessionsManagementSection /> in the JSX.
+         */}
+    </section>
   );
 }

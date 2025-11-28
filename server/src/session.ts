@@ -31,3 +31,35 @@ export function getSession(token: string | undefined | null) {
 export function destroySession(token: string) {
   db.prepare("DELETE FROM sessions WHERE token=?").run(token);
 }
+
+// =============================
+// Session management helpers
+// =============================
+export type SessionInfo = {
+  token: string;
+  userId: number;
+  email: string;
+  role: "user" | "admin";
+  createdAt: string;
+};
+
+/**
+ * List all active sessions for a given user.
+ */
+export function listUserSessions(userId: number): SessionInfo[] {
+  return db
+    .prepare(
+      `SELECT token, userId, email, role, createdAt
+       FROM sessions
+       WHERE userId = ?
+       ORDER BY createdAt DESC`
+    )
+    .all(userId) as SessionInfo[];
+}
+
+/**
+ * Revoke a single session by token.
+ */
+export function revokeSession(token: string): void {
+  db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+}

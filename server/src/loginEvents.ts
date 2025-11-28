@@ -56,3 +56,29 @@ export function getRecentLogins(userId: number, limit = 20): UserLoginEvent[] {
     )
     .all(userId, limit) as any;
 }
+
+// ===========================================
+// "Smart" login alerts: new device / new IP
+// ===========================================
+
+export function isNewDeviceOrIp(
+  userId: number,
+  ip: string | null,
+  userAgent: string | null
+): boolean {
+  // Reuse recent login events as a simple "memory" of known devices
+  const recent = getRecentLogins(userId, 5);
+  if (!recent.length) return true;
+
+  const normalizedIp = ip ?? "";
+  const normalizedUa = (userAgent ?? "").toLowerCase();
+
+  const seenCombination = recent.some((e) => {
+    const prevIp = e.ip ?? "";
+    const prevUa = (e.userAgent ?? "").toLowerCase();
+    return prevIp === normalizedIp && prevUa === normalizedUa;
+  });
+
+  // If we have never seen this IP/UA combination, treat it as a new device
+  return !seenCombination;
+}

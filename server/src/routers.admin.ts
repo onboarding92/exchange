@@ -11,6 +11,18 @@ import { logActivity } from "./activity";
 import { extractClientIp } from "./rateLimit";
 
 export const adminRouter = router({
+
+// ===========================
+// Admin — Force Password Reset
+// ===========================
+forcePasswordChange: adminProcedure
+  .input(z.object({ userId: z.number() }))
+  .mutation(({ input }) => {
+    db.prepare("UPDATE users SET forcePasswordChange=1 WHERE id=?")
+      .run(input.userId);
+    return { ok: true };
+  }),
+
   // ========================
   // KYC status update
   // ========================
