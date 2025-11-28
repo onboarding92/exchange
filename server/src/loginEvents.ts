@@ -82,3 +82,11 @@ export function isNewDeviceOrIp(
   // If we have never seen this IP/UA combination, treat it as a new device
   return !seenCombination;
 }
+
+
+export function deviceInfo(req: any) {
+  return {
+    ip: req?.headers?.["x-forwarded-for"] ?? req?.ip ?? "unknown",
+    ua: req?.headers?.["user-agent"] ?? "unknown"
+  };
+}

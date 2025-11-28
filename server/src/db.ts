@@ -96,3 +96,12 @@ export function seedIfEmpty() {
 }
 
 seedIfEmpty();
+
+
+CREATE TABLE IF NOT EXISTS passwordHistory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  passwordHash TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+);

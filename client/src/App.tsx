@@ -1,3 +1,4 @@
+import SecuritySessions from "./pages/SecuritySessions";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
