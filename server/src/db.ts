@@ -97,11 +97,14 @@ export function seedIfEmpty() {
 
 seedIfEmpty();
 
+// ========== PASSWORD HISTORY ==========
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS passwordHistory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    passwordHash TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+  )
+`).run();
 
-CREATE TABLE IF NOT EXISTS passwordHistory (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId INTEGER NOT NULL,
-  passwordHash TEXT NOT NULL,
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
-);

@@ -1,3 +1,25 @@
+
+// PASSWORD HISTORY START
+import { db } from "./db.js";
+import crypto from "crypto";
+
+function hash(p) {
+  return crypto.createHash("sha256").update(p).digest("hex");
+}
+
+// Reject old password reuse
+function isPasswordReused(userId, newHash) {
+  const rows = db.prepare("SELECT passwordHash FROM passwordHistory WHERE userId=?").all(userId);
+  return rows.some(r => r.passwordHash === newHash);
+}
+
+// Add to history
+function storePasswordHistory(userId, newHash) {
+  db.prepare("INSERT INTO passwordHistory (userId, passwordHash, createdAt) VALUES (?,?,?)")
+    .run(userId, newHash, new Date().toISOString());
+}
+// PASSWORD HISTORY END
+
 import { z } from "zod";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
