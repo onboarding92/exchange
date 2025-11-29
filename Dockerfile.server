@@ -1,0 +1,22 @@
+# Example Dockerfile for the server (Node + SQLite demo)
+# This is a SIMPLE skeleton and may be adapted to your production needs.
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY server/package*.json ./
+RUN npm ci --omit=dev
+
+# Copy source
+COPY server ./
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+# In real production you would probably build TS -> JS first.
+# For the scope of this demo, we assume "npm start" runs the compiled app
+CMD ["npm", "start"]

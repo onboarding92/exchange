@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: bitchange-server
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Load real secrets from .env.production (you can mount them or use env_file)
+    volumes:
+      - ./server/exchange.db:/app/exchange.db
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: bitchange-client
+    environment:
+      # Vite build already baked in env at build-time.
+      # For full flexibility use env_file and rebuild when changing config.
+      VITE_API_BASE_URL: "http://localhost:3000"
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    restart: unless-stopped

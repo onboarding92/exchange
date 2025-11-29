@@ -77,3 +77,16 @@ export function seedIfEmpty() {
 
 // Run seeding on module load
 seedIfEmpty();
+
+// ========= ACTIVITY LOGS =========
+db.prepare(`
+CREATE TABLE IF NOT EXISTS activityLogs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  ip TEXT,
+  createdAt TEXT NOT NULL,
+  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+)
+`).run();
+

@@ -1,0 +1,23 @@
+# Example Dockerfile for the React frontend (Vite)
+# Build stage
+FROM node:20-alpine AS build
+
+WORKDIR /app
+COPY client/package*.json ./
+RUN npm ci
+COPY client ./
+
+# Build for production
+RUN npm run build
+
+# Serve static files with nginx
+FROM nginx:1.27-alpine
+
+# Copy built assets
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Basic nginx config (can be customized)
+# You may mount your own nginx.conf in production
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

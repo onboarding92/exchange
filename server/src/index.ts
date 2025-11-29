@@ -1,39 +1,53 @@
 import express from "express";
 import cors from "cors";
-import cookieParser from "cookie-parser";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "./routers";
-import type { Ctx } from "./trpc";
-import { getSession } from "./session";
-import { seedIfEmpty } from "./db";
-import cron from "node-cron";
-import { stakingCronJob } from "./jobs/stakingCron";
-
-
-seedIfEmpty();
+import { router } from "./routers";
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 
 const app = express();
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
-app.use(cookieParser());
-app.use(express.json());
 
-app.use("/trpc", createExpressMiddleware({
-  router: appRouter,
-  createContext: ({ req, res }): Ctx => {
-    const token = req.cookies?.session as string | undefined;
-    const sess = getSession(token);
-    return { req, res, user: sess };
-  },
-}));
+// ------------------- SECURITY MIDDLEWARE -------------------
 
-const port = Number(process.env.PORT || 4000);
-app.listen(port, () => {
-  console.log("API listening on http://localhost:" + port);
+// Security headers
+app.use(helmet());
+
+// Gzip compression
+app.use(compression());
+
+// Global rate limit (15min — 300 req)
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
 });
-cron.schedule("* * * * *", async () => {
-  try {
-    await stakingCronJob();
-  } catch (err) {
-    console.error("[STAKING CRON ERROR]", err);
-  }
+app.use(globalLimiter);
+
+// Tighter rate-limit for login
+const loginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 20,
+});
+
+// CORS & body parsing
+app.use(
+  cors({
+    origin: "*",
+  })
+);
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Apply login limiter
+app.post("/auth/login", loginLimiter);
+
+// Main router
+app.use("/api", router);
+
+const port = process.env.PORT || 3001;
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.listen(port, () => {
+  console.log("Server running on port", port);
 });
