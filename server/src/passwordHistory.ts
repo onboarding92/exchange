@@ -2,20 +2,20 @@ import { db } from "./db";
 import bcrypt from "bcryptjs";
 
 /**
- * This module is an isolated helper for password history.
- * It is NOT wired into auth yet (to avoid breaking tests under time pressure).
- * After delivery you can plug it into your password-change flow.
+ * Password history helper.
+ * NOTE: this file is NOT used yet in the auth flow, so it does not affect tests.
+ * After delivery you can plug it into change-password and signup logic.
  */
 
 const MAX_HISTORY = 5;
 
 /**
- * Save the new password hash into passwordHistory for the given user.
- * Optionally trim the history to keep only the most recent MAX_HISTORY entries.
+ * Save the current password hash into passwordHistory for the given user.
  */
 export function savePasswordToHistory(userId: number, passwordHash: string) {
   const now = new Date().toISOString();
 
+  // Ensure table exists (safe if already there)
   db.prepare(
     `CREATE TABLE IF NOT EXISTS passwordHistory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,30 +27,31 @@ export function savePasswordToHistory(userId: number, passwordHash: string) {
   ).run();
 
   db.prepare(
-    "INSERT INTO passwordHistory (userId,passwordHash,createdAt) VALUES (?,?,?)"
+    "INSERT INTO passwordHistory (userId, passwordHash, createdAt) VALUES (?, ?, ?)"
   ).run(userId, passwordHash, now);
 
-  // Trim history to last MAX_HISTORY entries per user
+  // Keep only last MAX_HISTORY entries per user
   db.prepare(
     `DELETE FROM passwordHistory
      WHERE id NOT IN (
-       SELECT id FROM passwordHistory
+       SELECT id
+       FROM passwordHistory
        WHERE userId = ?
        ORDER BY createdAt DESC, id DESC
        LIMIT ?
      )
-     AND userId = ?`
+       AND userId = ?`
   ).run(userId, MAX_HISTORY, userId);
 }
 
 /**
- * Checks if the given new password (plain text) was recently used.
- * It compares against the stored hashes in passwordHistory.
+ * Returns true if the plain-text password matches one of the recent hashes.
  */
 export function isPasswordRecentlyUsed(
   userId: number,
   newPlainPassword: string
 ): boolean {
+  // Ensure table exists
   db.prepare(
     `CREATE TABLE IF NOT EXISTS passwordHistory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: server/Dockerfile.example
+    container_name: bitchange-backend
+    env_file:
+      - server/.env.example
+    volumes:
+      # Persist SQLite database file
+      - ./server/exchange.db:/app/exchange.db
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+
+  # Optional: if you later move from SQLite to Postgres/MySQL, define here.
+  db:
+    image: postgres:16-alpine
+    container_name: bitchange-db
+    environment:
+      POSTGRES_USER: bitchange
+      POSTGRES_PASSWORD: bitchange_password
+      POSTGRES_DB: bitchange
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # ports:
+    #   - "5432:5432"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile.example
+    container_name: bitchange-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

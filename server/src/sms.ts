@@ -1,8 +1,7 @@
 /**
  * Minimal SMS helper stub.
- * Right now it just logs to console.
- * In production you would integrate a real provider (Twilio, Vonage, etc.)
- * and keep this API stable.
+ * Right now it only logs to console.
+ * In production you plug a real provider (Twilio, Vonage, etc.).
  */
 
 export type SmsProvider = "twilio" | "other";
@@ -10,15 +9,10 @@ export type SmsProvider = "twilio" | "other";
 export type SmsConfig = {
   provider: SmsProvider;
   fromNumber: string;
-  // Twilio-like config:
   accountSid?: string;
   authToken?: string;
 };
 
-/**
- * Load SMS config from environment variables.
- * This is only a stub, but gives you the contract.
- */
 export function getSmsConfig(): SmsConfig | null {
   const provider = process.env.SMS_PROVIDER as SmsProvider | undefined;
   const fromNumber = process.env.SMS_FROM || "";
@@ -36,7 +30,7 @@ export function getSmsConfig(): SmsConfig | null {
 }
 
 /**
- * Send an SMS. For now we just log to console to avoid external dependencies.
+ * Send an SMS — for now it's just a console.log.
  */
 export async function sendSms(to: string, message: string): Promise<void> {
   const cfg = getSmsConfig();
@@ -48,8 +42,8 @@ export async function sendSms(to: string, message: string): Promise<void> {
     return;
   }
 
-  // Here is where you would call Twilio (or other provider) in real life.
-  console.log("[sms] Sending SMS via provider", {
+  // Here you would call the real provider API.
+  console.log("[sms] Sending SMS", {
     provider: cfg.provider,
     from: cfg.fromNumber,
     to,
