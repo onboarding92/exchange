@@ -39,6 +39,22 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Security layers
+app.use(helmet());
+app.use(compression());
+
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+});
+app.use(globalLimiter);
+
+const loginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 20,
+});
+app.post("/api/auth/login", loginLimiter);
+
 // Apply login limiter
 app.post("/auth/login", loginLimiter);
 
