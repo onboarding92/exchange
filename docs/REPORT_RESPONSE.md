@@ -9,17 +9,21 @@ This document answers point-by-point the issues reported by the development team
 ### 1.1 Backtick/quote SQL mismatch  
 Status: FIXED
 
-All SQL queries now use correct quoting. No more esbuild parse errors on routers.admin.ts.
+All SQL queries that previously mixed backticks and double quotes have been corrected.
+The code now compiles and runs with Vitest without SQL parse errors.
 
 ### 1.2 Missing function logWarn()  
 Status: FIXED
 
-Replaced with console.warn() or internal logger.
+The undefined function logWarn() has been replaced with console.warn() or a proper logger,
+depending on the context. There are no more calls to non-existent log helpers.
 
 ### 1.3 Impossible condition: status='pending' AND status='approved'  
 Status: FIXED
 
-Rewritten to a single status condition for approved withdrawals.
+The query that used an impossible condition on status has been refactored to a
+sensible condition (e.g. only 'approved' where needed). The logic now matches
+the intended business rules for withdrawals.
 
 ---
 
@@ -28,18 +32,21 @@ Rewritten to a single status condition for approved withdrawals.
 ### 2.1 Backend  
 Status: PARTIAL / ACCEPTED RISK
 
-- No breaking library upgrades at this stage.
-- Added:
-  - helmet
-  - express-rate-limit
-  - compression
-  - login throttling
-  - activity logs and device/IP logging
+- We avoided massive dependency upgrades that could break the current prototype.
+- Instead, we added hardening layers on the Node.js side:
+  - helmet: security headers
+  - express-rate-limit: basic DDoS/brute-force protection
+  - compression: HTTP compression for performance
+  - login throttling on /api/auth/login
+  - activity and device logging utilities to track suspicious behavior
+
+In a later phase, we can plan a full dependency upgrade with regression tests.
 
 ### 2.2 Frontend  
 Status: PARTIAL
 
-Build is clean. Upgrades planned in a later hardening pass.
+The frontend builds cleanly and is suitable for a controlled real-money MVP.
+Remaining audit warnings are tracked for a future hardening release.
 
 ---
 
@@ -47,15 +54,16 @@ Build is clean. Upgrades planned in a later hardening pass.
 
 Status: FIXED (core), PARTIAL (extra)
 
-Core routers registered:
+Core routers now registered in server/src/routers.ts:
 - auth
 - wallet
 - trading
 - admin
 - kyc
-- devices (session management)
+- devices (session/device management)
 
-Extra routers (support, promos, advanced analytics) are planned but not blocking.
+Non-critical routers (support, promos, advanced analytics) can be wired later
+without blocking core exchange operations.
 
 ---
 
@@ -63,14 +71,14 @@ Extra routers (support, promos, advanced analytics) are planned but not blocking
 
 Status: PARTIAL
 
-Real data wired for:
-- Wallet
-- Trades
-- Withdrawals
-- Admin withdrawal approvals
-- KYC reviewer essentials
+The following areas use real backend data:
+- Wallet balances
+- Trades and basic trading flows
+- Withdrawals list and admin approval
+- Essential KYC flows
 
-Some cosmetic admin sections still use mock/stub values but do not affect core exchange operations.
+Some admin/statistics widgets still use mocked values purely for UI; they do not
+affect the integrity of funds or core business logic.
 
 ---
 
@@ -78,17 +86,20 @@ Some cosmetic admin sections still use mock/stub values but do not affect core e
 
 Status: WORKING PROTOTYPE – CAN HANDLE REAL FUNDS WITH CAUTION
 
-The system is able to:
-- Create and authenticate users
-- Track balances
-- Execute trades
-- Manage withdrawals via admin approval
-- Record device and session activity
-- Handle minimal KYC
+The system can currently:
+- Register/login users
+- Manage per-user balances on internal ledgers
+- Execute trades and update balances
+- Queue and approve withdrawals via admin
+- Track sessions/devices and basic security events
+- Run with an HTTP API + React SPA frontend
 
-Additional items required for a fully hardened production setup:
-- Fiat gateway integration
-- Hot/cold wallet infrastructure
-- Double-entry accounting and reconciliation
-- Dedicated transaction queue/worker
-- External security and code audit
+For a hardened production deployment the recommended next steps are:
+- Fiat on/off ramp integration (external provider)
+- Hot/cold wallet architecture for crypto custody
+- Double-entry accounting and periodic reconciliation scripts
+- Background workers/queues for on-chain operations
+- External security/code review
+
+This is a solid foundation for a real-money MVP with the understanding that
+further hardening is required for large scale or regulated environments.
