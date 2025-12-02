@@ -258,7 +258,7 @@ forcePasswordChange: adminProcedure
         const walletLocked = wallet?.locked ?? 0;
 
         if (!wallet || wallet.balance < totalAmount) {
-          logWarn("Admin approveWithdrawal failed: insufficient wallet balance", {
+          console.warn("Admin approveWithdrawal failed: insufficient wallet balance", {
             adminId: ctx.user!.id,
             userId: wd.userId,
             asset: wd.asset,
@@ -428,7 +428,7 @@ forcePasswordChange: adminProcedure
     const totalWithdrawn =
       (db
         .prepare(
-          "SELECT SUM(amount) as s FROM withdrawals WHERE status='pending' AND status='approved'"
+          "SELECT SUM(amount) as s FROM withdrawals WHERE status IN ('pending','approved')"
         )
         .get() as any).s || 0;
 
