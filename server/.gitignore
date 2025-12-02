@@ -1,0 +1,7 @@
+# SQLite artifacts
+exchange.db
+exchange.db-shm
+exchange.db-wal
+
+# Vitest cache
+node_modules/.vite/vitest/

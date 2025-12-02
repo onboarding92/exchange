@@ -1,0 +1,7 @@
+# SQLite artifacts (server)
+server/exchange.db
+server/exchange.db-shm
+server/exchange.db-wal
+
+# Vitest cache
+server/node_modules/.vite/vitest/
