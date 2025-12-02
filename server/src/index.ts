@@ -30,9 +30,15 @@ const loginLimiter = rateLimit({
 });
 
 // CORS & body parsing
+const allowedOrigin =
+  process.env.NODE_ENV === "production"
+    ? process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || "https://example.com"
+    : "*";
+
 app.use(
   cors({
-    origin: "*",
+    origin: allowedOrigin,
+    credentials: true,
   })
 );
 

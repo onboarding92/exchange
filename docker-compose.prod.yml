@@ -1,32 +1,47 @@
 version: "3.9"
 
 services:
-  server:
-    build:
-      context: .
-      dockerfile: Dockerfile.server
-    container_name: bitchange-server
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      # Load real secrets from .env.production (you can mount them or use env_file)
-    volumes:
-      - ./server/exchange.db:/app/exchange.db
-    ports:
-      - "3000:3000"
+  nginx:
+    image: nginx:stable
+    container_name: bitchange-nginx
     restart: unless-stopped
-
-  client:
-    build:
-      context: .
-      dockerfile: Dockerfile.client
-    container_name: bitchange-client
-    environment:
-      # Vite build already baked in env at build-time.
-      # For full flexibility use env_file and rebuild when changing config.
-      VITE_API_BASE_URL: "http://localhost:3000"
     ports:
-      - "8080:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Custom nginx configuration
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certificates (if using certbot on the host)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Static frontend build
+      - ./client/dist:/usr/share/nginx/html:ro
     depends_on:
       - server
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.server
+    container_name: bitchange-server
     restart: unless-stopped
+    env_file:
+      - ./server/.env.production
+    environment:
+      # Ensure db.ts uses this file if you want a custom path.
+      # If db.ts uses just "exchange.db" in cwd, this is optional.
+      DATABASE_FILE=exchange.db
+    volumes:
+      # Persist SQLite DB on host (not inside the container layer)
+      - ./server/exchange-data:/app
+    expose:
+      - "3001"
+
+  # Optional: use this as a build job for the client
+  client-build:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.client
+    container_name: bitchange-client-build
+    command: ["npm", "run", "build"]
+    volumes:
+      - ./client:/app
