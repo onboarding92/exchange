@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { config } from "./config";
 import { router } from "./routers";
 import helmet from "helmet";
 import compression from "compression";
@@ -67,7 +68,7 @@ app.post("/auth/login", loginLimiter);
 // Main router
 app.use("/api", router);
 
-const port = process.env.PORT || 3001;
+const port = config.PORT;
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.listen(port, () => {

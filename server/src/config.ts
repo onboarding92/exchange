@@ -1,69 +1,39 @@
-import { z } from "zod";
+/**
+ * Centralized configuration for BitChange backend.
+ * All required environment variables are validated here at startup.
+ */
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z
-    .string()
-    .transform((v) => parseInt(v, 10))
-    .pipe(z.number().int().positive())
-    .default("4000" as any),
-
-  DB_PATH: z.string().default("./data/exchange.db"),
-
-  JWT_SECRET: z
-    .string()
-    .min(16)
-    .optional(), // kept optional for now to avoid breaking existing setups
-  JWT_EXPIRES_IN: z.string().default("7d"),
-
-  CLIENT_URL: z.string().optional(),
-
-  RATE_LIMIT_LOGIN_MAX: z
-    .string()
-    .transform((v) => parseInt(v, 10))
-    .pipe(z.number().int().positive())
-    .optional(),
-  RATE_LIMIT_LOGIN_WINDOW_MS: z
-    .string()
-    .transform((v) => parseInt(v, 10))
-    .pipe(z.number().int().positive())
-    .optional(),
-
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z
-    .string()
-    .transform((v) => parseInt(v, 10))
-    .pipe(z.number().int().positive())
-    .optional(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().optional(),
-  SMTP_SECURE: z
-    .string()
-    .transform((v) => v === "true")
-    .optional(),
-
-  // Payment API placeholders
-  MOONPAY_API_KEY: z.string().optional(),
-  MOONPAY_API_SECRET: z.string().optional(),
-  TRANSAK_API_KEY: z.string().optional(),
-  MERCURYO_API_KEY: z.string().optional(),
-  BANXA_API_KEY: z.string().optional(),
-  COINGATE_API_KEY: z.string().optional(),
-  CHANGELLY_API_KEY: z.string().optional(),
-
-  LOG_LEVEL: z.string().optional(),
-});
-
-const parsed = envSchema.safeParse(process.env);
-
-if (!parsed.success) {
-  console.warn(
-    "[config] Environment variables validation failed (non-fatal for now):",
-    parsed.error.flatten()
-  );
+function must(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  return v;
 }
 
-export const config = parsed.success
-  ? parsed.data
-  : ({} as z.infer<typeof envSchema>);
+export const config = {
+  NODE_ENV: process.env.NODE_ENV ?? "production",
+
+  // Server port (used by src/index.ts)
+  PORT: Number(process.env.PORT ?? process.env.APP_PORT ?? "3001"),
+
+  // Secrets
+  SESSION_SECRET: must("SESSION_SECRET"),
+  JWT_SECRET: must("JWT_SECRET"),
+
+  // Application base URL (used in emails / links)
+  APP_URL: must("APP_URL"), // e.g. https://exchange.yourdomain.com
+
+  // SMTP configuration
+  SMTP_HOST: must("SMTP_HOST"),
+  SMTP_PORT: Number(process.env.SMTP_PORT ?? "587"),
+  SMTP_USER: must("SMTP_USER"),
+  SMTP_PASS: must("SMTP_PASS"),
+
+  // Optional: from address used in emails
+  SMTP_FROM: process.env.SMTP_FROM ?? "no-reply@bitchange.money",
+
+  // Security / limits (you can tune these in .env)
+  MAX_LOGIN_ATTEMPTS_PER_5MIN: Number(process.env.MAX_LOGIN_ATTEMPTS_PER_5MIN ?? "20"),
+  GLOBAL_RATE_LIMIT_PER_15MIN: Number(process.env.GLOBAL_RATE_LIMIT_PER_15MIN ?? "300"),
+};
