@@ -1,166 +1,165 @@
-# BitChange – TODOs Before Real-Money Production
+# BitChange – Production TODO Checklist (v1)
 
-This checklist covers what should be done before letting **real users**
-move **real money** through this system. It assumes a small / moderate
-traffic exchange (tens / low hundreds of users per day), *not* Binance scale.
+This file summarizes what is still needed to safely run BitChange
+with **real money** and ~100 active users/day (non-HFT usage).
 
----
-
-## 1. Configuration & Secrets
-
-- [ ] Create `server/.env.production` from `.env.production.example`
-- [ ] Create `client/.env.production` from `.env.production.example`
-- [ ] Set strong secrets:
-  - [ ] `SESSION_SECRET`
-  - [ ] Any JWT / token secrets (if present)
-  - [ ] Turn off any debug flags
-- [ ] Configure correct public URLs:
-  - [ ] Backend API base URL
-  - [ ] Frontend public URL
-- [ ] Configure CORS so only your frontend domain can call the backend.
+It focuses on *operations & security*, since the codebase already:
+- passes backend tests (`server/npm test`)
+- builds the frontend (`client/npm run build`)
+- has admin panel, trading, wallets, staking, KYC, logs, device sessions, etc.
 
 ---
 
-## 2. Email / SMTP
+## 1. MUST-HAVE before handling real money
 
-- [ ] Choose SMTP provider (Mailgun, SES, SendGrid, Postmark, etc.)
+These are **blocking** items before letting real users deposit/withdraw.
+
+### 1.1. Secrets & ENV configuration
+
+- [ ] Generate strong, unique values for:
+  - `SESSION_SECRET` in `server/.env.production`
+  - any other secrets (JWT/crypto/email signing if added)
+- [ ] NEVER commit `.env.production` to Git
+- [ ] Store the secrets somewhere safe (password manager, etc.)
+
+### 1.2. SMTP / Email provider
+
+Used for:
+- login alerts
+- device/session notifications
+- password recovery flows
+- optional KYC / support communications
+
+Tasks:
+- [ ] Choose provider (Mailgun / SES / SendGrid / Postmark / etc.)
+- [ ] Create SMTP user + password
 - [ ] Configure:
-  - [ ] SMTP host
-  - [ ] Port
-  - [ ] User / password or API key
-  - [ ] From address (e.g. `no-reply@yourdomain.com`)
-- [ ] Set DNS records:
-  - [ ] SPF
-  - [ ] DKIM
-  - [ ] DMARC (optional but strongly recommended)
-- [ ] Test flows:
-  - [ ] Login email alerts
-  - [ ] Password reset emails
-  - [ ] KYC / admin notifications (if wired)
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM` (e.g., no-reply@yourdomain.com)
+- [ ] Set SPF, DKIM and (optionally) DMARC for the domain
+- [ ] Test:
+  - [ ] login alert email
+  - [ ] password reset email
+  - [ ] new device email
+
+### 1.3. Domain + HTTPS
+
+- [ ] Buy/assign a domain (e.g. `exchange.yourdomain.com`)
+- [ ] Point DNS A record to VPS IP
+- [ ] Configure HTTPS (Lets Encrypt / Certbot / or provider)
+- [ ] Verify:
+  - [ ] `https://exchange.yourdomain.com` serves the frontend
+  - [ ] `https://exchange.yourdomain.com/health` returns `{ ok: true }`
+
+### 1.4. Backups (database)
+
+Currently DB = **SQLite** (`server/exchange.db`).
+
+You already have `server/scripts/backup_db.sh`.
+
+Must:
+- [ ] Decide local backup path (e.g. `/srv/exchange/backups`)
+- [ ] Create cron job on the server:
+  - e.g. `0 3 * * * /srv/exchange/server/scripts/backup_db.sh /srv/exchange/backups`
+- [ ] Periodically copy backups off-server to object storage (S3/B2/etc.)
+- [ ] Test restore procedure in a dev environment.
+
+### 1.5. Access control & admin safety
+
+- [ ] Change **admin password** from default (`admin123`) to a strong one.
+- [ ] Change **demo password** or disable demo account in production.
+- [ ] Verify admin panel is not accessible to non-admin users.
+- [ ] Keep a private admin account not shared among multiple people.
+
+### 1.6. Real blockchain integration (if used)
+
+If BitChange is used with real crypto:
+
+- [ ] Decide hot wallet strategy (which chains, which tokens).
+- [ ] Use providers (e.g. Infura/Alchemy/etc.) or your own node.
+- [ ] Store API keys and private keys **outside** Git.
+- [ ] Keep very small balance in hot wallet, majority in cold storage.
+- [ ] Implement manual or semi-manual large withdrawals review.
 
 ---
 
-## 3. Security & Hardening
+## 2. SHOULD-HAVE soon after go-live
 
-- [ ] Ensure **HTTPS** end to end (TLS cert via Let's Encrypt or provider)
-- [ ] Confirm `helmet` is enabled in production
-- [ ] Confirm `express-rate-limit` active (global + login)
-- [ ] Ensure no `CORS: *` in production; restrict origins
-- [ ] Disable any test-only routes if present
-- [ ] Review environment:
-  - [ ] Node.js LTS
-  - [ ] Up-to-date `npm` and critical libs
-- [ ] Run `npm audit` in server and client:
-  - [ ] Decide which vulnerabilities must be fixed now
-  - [ ] Document any accepted risks.
+Important, but not strictly blocking for a controlled first launch.
 
----
+### 2.1. Monitoring & alerting
 
-## 4. Database & Backups
+- [ ] Set up basic server monitoring (CPU, RAM, disk):
+  - provider tools or external services (UptimeRobot, HetrixTools, etc.)
+- [ ] Monitor:
+  - `/health` endpoint
+  - number of 5xx errors
+  - DB file size
+  - withdrawal queue size
+- [ ] Configure alerts:
+  - downtime
+  - high error rate
+  - disk > 80%
+  - too many failed logins
 
-Current DB is **SQLite** (`exchange.db`).
+### 2.2. Logs & retention
 
-- [ ] Place DB on fast SSD
-- [ ] Ensure WAL mode is enabled (already done in code)
-- [ ] Set up local automated backups:
-  - [ ] Use `server/scripts/backup_db.sh` via cron (e.g. daily at 03:00)
-  - [ ] Store backups in `/srv/exchange/backups` or similar
-- [ ] Set up off-site backup:
-  - [ ] Sync backups to S3 / B2 / Spaces / etc.
-- [ ] Test restore procedure:
-  - [ ] Spin up a dev instance and restore a backup
-  - [ ] Run migration/tests against restored DB.
+- [ ] Centralize logs (journalctl, docker logs, or external log service).
+- [ ] Decide log retention:
+  - e.g. keep 30–90 days depending on legal and privacy.
 
-For higher capital / volume, plan a **Phase 2** migration to PostgreSQL.
+### 2.3. Legal & UX basics
 
----
+Even if not a fully regulated exchange:
 
-## 5. Operational Limits & Manual Procedures
-
-- [ ] Define **manual process** for:
-  - [ ] Approving withdrawals (who, how, 4-eyes principle?)
-  - [ ] Freezing a user account
-  - [ ] Handling suspected fraud
-- [ ] Decide deposit/withdrawal limits:
-  - [ ] Per-user daily limit
-  - [ ] Per-asset limits
-- [ ] Document how on-chain or banking movements are reconciled with DB:
-  - [ ] Who sends crypto / receives fiat
-  - [ ] How to record them in the admin panel
+- [ ] Add Terms of Service page.
+- [ ] Add basic Privacy Policy.
+- [ ] Explain risks of crypto, no guarantee of profits, etc.
+- [ ] Show clear contact/support info.
 
 ---
 
-## 6. KYC & Legal
+## 3. LATER / NICE-TO-HAVE (Phase 2+)
 
-For **real, public exchange**, this system is **NOT sufficient** by itself.
-If you run it in a small private circle, still:
+When traffic and capital increase.
 
-- [ ] Decide what info you collect (KYC light vs heavy)
-- [ ] Decide which jurisdictions you accept users from
-- [ ] Consult a lawyer / compliance expert:
-  - [ ] Licensing
-  - [ ] AML obligations
-  - [ ] Reporting thresholds
-- [ ] Document what KYC status values mean operationally.
+### 3.1. Database migration
 
----
+- [ ] Migrate from **SQLite** to **PostgreSQL** (managed service preferred).
+- [ ] Update DB layer:
+  - use Sequelize/Prisma/Drizzle or custom SQL on Postgres.
+- [ ] Keep strict schema migrations.
 
-## 7. QA / Testing Scenarios
+### 3.2. Infrastructure hardening
 
-Before enabling deposits and withdrawals for real users, run manual QA:
+- [ ] Separate DB on a different host or managed service.
+- [ ] Add a WAF or Cloudflare in front of the exchange.
+- [ ] Add multi-region backups.
+- [ ] Implement full observability stack (Prometheus/Grafana or similar).
 
-### User flows
+### 3.3. Advanced security features
 
-- [ ] Registration, login, logout
-- [ ] Enable 2FA (if you enable it operationally)
-- [ ] Change password
-- [ ] Password reset via email
-- [ ] Login from new device → check device list / alert (if enabled)
-
-### Wallet & trading
-
-- [ ] See balances and recent transactions
-- [ ] Do a couple of internal transfers
-- [ ] Place buy and sell orders, verify matching engine
-- [ ] Check order history and trade history
-
-### KYC
-
-- [ ] Submit KYC docs as user
-- [ ] Review/approve as admin
-- [ ] Verify status reflected in the UI
-
-### Admin
-
-- [ ] Review withdrawal requests
-- [ ] Approve one and simulate manual blockchain/bank transfer
-- [ ] Reject one and verify user sees correct status
-- [ ] Check logs / activity where available
+- [ ] Optional IP allowlisting for admin.
+- [ ] More granular rate limits per route.
+- [ ] Device fingerprinting / anomaly detection.
+- [ ] External code security review / pentest.
 
 ---
 
-## 8. Monitoring & Logging
+## 4. Manual checklist before going live
 
-- [ ] Decide how to catch issues in production:
-  - [ ] Centralized logs (e.g. journald, Loki, ELK, Datadog, etc.)
-  - [ ] Basic alerts when:
-    - [ ] API is down
-    - [ ] Unusual error spikes
-- [ ] Add uptime probes:
-  - [ ] `/health` endpoint exposed and checked by external monitor.
+Before enabling real deposits/withdrawals:
 
----
-
-## 9. Known Limitations (v1)
-
-- Single-node architecture (one VPS)
-- SQLite database (good for low volume, not for high concurrency)
-- No automated blockchain integration
-- No full AML engine
-- No full accounting module
-- No full KYC vendor integration
-
-You should **not** market this as a large public / regulated exchange
-without significant extra work. For **small, controlled usage** with
-careful operational procedures, it can be acceptable as a v1.
+- [ ] All tests GREEN: `cd server && npm test`
+- [ ] Frontend build OK: `cd client && npm run build`
+- [ ] All ENV variables set and documented.
+- [ ] SMTP tested (alerts + recovery).
+- [ ] Backups configured + test restore done.
+- [ ] Admin accounts hardened.
+- [ ] Monitoring & basic alerts online.
+- [ ] Legal pages visible to users.
+- [ ] A rollback / shutdown plan exists in case of incident.
 
