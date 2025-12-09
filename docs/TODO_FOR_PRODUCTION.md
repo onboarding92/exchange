@@ -1,165 +1,208 @@
-# BitChange – Production TODO Checklist (v1)
+# BitChange – TODO for Production (v1)
 
-This file summarizes what is still needed to safely run BitChange
-with **real money** and ~100 active users/day (non-HFT usage).
-
-It focuses on *operations & security*, since the codebase already:
-- passes backend tests (`server/npm test`)
-- builds the frontend (`client/npm run build`)
-- has admin panel, trading, wallets, staking, KYC, logs, device sessions, etc.
+This document lists what must be done before running BitChange with
+real money and up to ~100 active users/day.
 
 ---
 
-## 1. MUST-HAVE before handling real money
+## A. Before provisioning the server
 
-These are **blocking** items before letting real users deposit/withdraw.
+1. **Choose VPS provider**
+   - Target spec:
+     - 4 vCPU
+     - 8 GB RAM
+     - 160–200 GB SSD
+     - Ubuntu 22.04 LTS
+   - Example providers: Hetzner, DigitalOcean, OVH, AWS Lightsail, etc.
 
-### 1.1. Secrets & ENV configuration
+2. **Domain & DNS**
+   - Decide the production hostname, e.g.:
+     - `exchange.yourdomain.com`
+   - Create:
+     - `A` record → VPS public IP
 
-- [ ] Generate strong, unique values for:
-  - `SESSION_SECRET` in `server/.env.production`
-  - any other secrets (JWT/crypto/email signing if added)
-- [ ] NEVER commit `.env.production` to Git
-- [ ] Store the secrets somewhere safe (password manager, etc.)
-
-### 1.2. SMTP / Email provider
-
-Used for:
-- login alerts
-- device/session notifications
-- password recovery flows
-- optional KYC / support communications
-
-Tasks:
-- [ ] Choose provider (Mailgun / SES / SendGrid / Postmark / etc.)
-- [ ] Create SMTP user + password
-- [ ] Configure:
-  - `SMTP_HOST`
-  - `SMTP_PORT`
-  - `SMTP_USER`
-  - `SMTP_PASS`
-  - `SMTP_FROM` (e.g., no-reply@yourdomain.com)
-- [ ] Set SPF, DKIM and (optionally) DMARC for the domain
-- [ ] Test:
-  - [ ] login alert email
-  - [ ] password reset email
-  - [ ] new device email
-
-### 1.3. Domain + HTTPS
-
-- [ ] Buy/assign a domain (e.g. `exchange.yourdomain.com`)
-- [ ] Point DNS A record to VPS IP
-- [ ] Configure HTTPS (Lets Encrypt / Certbot / or provider)
-- [ ] Verify:
-  - [ ] `https://exchange.yourdomain.com` serves the frontend
-  - [ ] `https://exchange.yourdomain.com/health` returns `{ ok: true }`
-
-### 1.4. Backups (database)
-
-Currently DB = **SQLite** (`server/exchange.db`).
-
-You already have `server/scripts/backup_db.sh`.
-
-Must:
-- [ ] Decide local backup path (e.g. `/srv/exchange/backups`)
-- [ ] Create cron job on the server:
-  - e.g. `0 3 * * * /srv/exchange/server/scripts/backup_db.sh /srv/exchange/backups`
-- [ ] Periodically copy backups off-server to object storage (S3/B2/etc.)
-- [ ] Test restore procedure in a dev environment.
-
-### 1.5. Access control & admin safety
-
-- [ ] Change **admin password** from default (`admin123`) to a strong one.
-- [ ] Change **demo password** or disable demo account in production.
-- [ ] Verify admin panel is not accessible to non-admin users.
-- [ ] Keep a private admin account not shared among multiple people.
-
-### 1.6. Real blockchain integration (if used)
-
-If BitChange is used with real crypto:
-
-- [ ] Decide hot wallet strategy (which chains, which tokens).
-- [ ] Use providers (e.g. Infura/Alchemy/etc.) or your own node.
-- [ ] Store API keys and private keys **outside** Git.
-- [ ] Keep very small balance in hot wallet, majority in cold storage.
-- [ ] Implement manual or semi-manual large withdrawals review.
+3. **SMTP / Email provider**
+   - Create an account at Mailgun / SendGrid / Postmark / SES / etc.
+   - Prepare:
+     - SMTP host
+     - SMTP port
+     - SMTP username / password
+     - From email address (e.g. `no-reply@yourdomain.com`)
+   - Configure on the domain:
+     - SPF record
+     - DKIM keys
+     - DMARC policy (optional but recommended)
 
 ---
 
-## 2. SHOULD-HAVE soon after go-live
+## B. Server base setup (once VPS is ready)
 
-Important, but not strictly blocking for a controlled first launch.
+4. **Base hardening**
+   - Create non-root user, e.g.:
+     - `adduser exchange`
+     - `usermod -aG sudo exchange`
+   - Update the OS:
+     - `apt update && apt upgrade -y`
+   - Configure firewall (UFW):
+     - `ufw allow OpenSSH`
+     - `ufw allow 80/tcp`
+     - `ufw allow 443/tcp`
+     - `ufw enable`
 
-### 2.1. Monitoring & alerting
+5. **Install Docker & docker compose plugin**
+   - Follow official Docker instructions for Ubuntu 22.04.
+   - Add `exchange` user to `docker` group.
 
-- [ ] Set up basic server monitoring (CPU, RAM, disk):
-  - provider tools or external services (UptimeRobot, HetrixTools, etc.)
-- [ ] Monitor:
-  - `/health` endpoint
-  - number of 5xx errors
-  - DB file size
-  - withdrawal queue size
-- [ ] Configure alerts:
-  - downtime
-  - high error rate
-  - disk > 80%
-  - too many failed logins
-
-### 2.2. Logs & retention
-
-- [ ] Centralize logs (journalctl, docker logs, or external log service).
-- [ ] Decide log retention:
-  - e.g. keep 30–90 days depending on legal and privacy.
-
-### 2.3. Legal & UX basics
-
-Even if not a fully regulated exchange:
-
-- [ ] Add Terms of Service page.
-- [ ] Add basic Privacy Policy.
-- [ ] Explain risks of crypto, no guarantee of profits, etc.
-- [ ] Show clear contact/support info.
+6. **Clone repository**
+   - Suggested structure:
+     - `/srv/exchange`
+   - Commands:
+     - `mkdir -p /srv/exchange`
+     - `chown exchange:exchange /srv/exchange`
+     - `cd /srv/exchange`
+     - `git clone https://github.com/onboarding92/exchange.git .`
 
 ---
 
-## 3. LATER / NICE-TO-HAVE (Phase 2+)
+## C. Production environment configuration
 
-When traffic and capital increase.
+7. **Backend: server/.env.production**
+   - Copy:
+     - `cp server/.env.production.example server/.env.production`
+   - Set values:
+     - `SESSION_SECRET=<strong_random_secret>`
+       - Long, random, not reused anywhere else.
+     - `APP_DOMAIN=https://exchange.yourdomain.com`
+     - SMTP settings:
+       - `SMTP_HOST`
+       - `SMTP_PORT`
+       - `SMTP_USER`
+       - `SMTP_PASS`
+       - `SMTP_FROM`
+     - Any optional keys for integrations you plan to enable.
 
-### 3.1. Database migration
+8. **Frontend: client/.env.production**
+   - Copy:
+     - `cp client/.env.production.example client/.env.production`
+   - Set values:
+     - `VITE_API_URL=https://exchange.yourdomain.com/api`
 
-- [ ] Migrate from **SQLite** to **PostgreSQL** (managed service preferred).
-- [ ] Update DB layer:
-  - use Sequelize/Prisma/Drizzle or custom SQL on Postgres.
-- [ ] Keep strict schema migrations.
-
-### 3.2. Infrastructure hardening
-
-- [ ] Separate DB on a different host or managed service.
-- [ ] Add a WAF or Cloudflare in front of the exchange.
-- [ ] Add multi-region backups.
-- [ ] Implement full observability stack (Prometheus/Grafana or similar).
-
-### 3.3. Advanced security features
-
-- [ ] Optional IP allowlisting for admin.
-- [ ] More granular rate limits per route.
-- [ ] Device fingerprinting / anomaly detection.
-- [ ] External code security review / pentest.
+9. **Admin and demo credentials**
+   - Change default passwords for:
+     - `demo@bitchange.money`
+     - `admin@bitchange.money`
+   - Decide whether to:
+     - disable demo login in production, or
+     - clearly mark it as demo with low balances and no real withdrawals.
 
 ---
 
-## 4. Manual checklist before going live
+## D. Technical verification on the server
 
-Before enabling real deposits/withdrawals:
+10. **Backend tests**
+    - `cd server`
+    - `npm install`
+    - `npm test`
+    - All Vitest suites must pass.
 
-- [ ] All tests GREEN: `cd server && npm test`
-- [ ] Frontend build OK: `cd client && npm run build`
-- [ ] All ENV variables set and documented.
-- [ ] SMTP tested (alerts + recovery).
-- [ ] Backups configured + test restore done.
-- [ ] Admin accounts hardened.
-- [ ] Monitoring & basic alerts online.
-- [ ] Legal pages visible to users.
-- [ ] A rollback / shutdown plan exists in case of incident.
+11. **Frontend build**
+    - `cd client`
+    - `npm install`
+    - `npm run build`
+    - Vite build must complete successfully.
 
+12. **Pre-production check script (optional but recommended)**
+    - From repo root:
+      - `cd server`
+      - `./scripts/preprod_check.sh` (or `bash scripts/preprod_check.sh`)
+    - This runs:
+      - backend tests
+      - frontend build
+      - summary of status
+
+13. **Run with Docker compose**
+    - From repo root (`/srv/exchange`):
+      - `docker compose -f docker-compose.prod.yml build`
+      - `docker compose -f docker-compose.prod.yml up -d`
+
+14. **Runtime checks**
+    - Healthcheck:
+      - `curl https://exchange.yourdomain.com/health`
+    - Functional tests (manual, with small internal group):
+      - User registration / login
+      - Password reset
+      - Login alerts (if SMTP configured)
+      - Wallet balances
+      - Small trades
+      - Staking
+      - Withdrawals (in controlled environment with test amounts)
+
+---
+
+## E. Security, backups & risk controls
+
+15. **Backups**
+    - Use the provided script:
+      - `server/scripts/backup_db.sh /srv/exchange/backups`
+    - Create a cron entry (example):
+      - `0 3 * * * /srv/exchange/server/scripts/backup_db.sh /srv/exchange/backups >> /var/log/bitchange_backup.log 2>&1`
+    - Plan off-site backups:
+      - Sync `/srv/exchange/backups` to S3 / B2 / Spaces / Wasabi / etc.
+
+16. **Monitoring & alerts**
+    - Monitor:
+      - `/health` endpoint
+      - CPU, RAM, disk usage
+      - Application logs (errors, 5xx)
+    - Alerts:
+      - service down
+      - high error rate
+      - disk usage > 80%
+
+17. **Risk limits**
+    - Decide operational exposure cap:
+      - e.g. total capital <= 250k–500k EUR for initial phase.
+    - Define withdrawal policies:
+      - per-user daily limits
+      - manual approval threshold (e.g. > 5,000 EUR)
+      - procedure to pause withdrawals in emergencies.
+    - See also:
+      - `docs/RISK_LIMITS_AND_POLICIES.md`
+
+18. **Admin access & credentials**
+    - Ensure:
+      - admin passwords are strong and rotated.
+      - only trusted operators have admin accounts.
+      - IP allowlist / VPN for admin panel (if possible).
+      - 2FA usage on email / password managers for admins.
+
+---
+
+## F. Operational procedures
+
+19. **Operations runbook**
+    - Review and adapt:
+      - `docs/OPERATIONS_RUNBOOK.md`
+    - Make sure it covers:
+      - what to do if:
+        - the site is down
+        - users report missing funds
+        - suspicious withdrawals are seen
+      - how to:
+        - restore from backup
+        - rotate secrets
+        - temporarily freeze withdrawals
+
+20. **Internal beta before public launch**
+    - Invite a small group (team / friends).
+    - Run with:
+      - small balances
+      - logging enabled
+      - close monitoring.
+    - Fix any issues before opening to the public.
+
+---
+
+If all the items above are addressed, BitChange can be considered
+ready for a careful, controlled production launch with real money and
+moderate user volume.
