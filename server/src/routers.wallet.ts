@@ -73,7 +73,7 @@ export const walletRouter = router({
     .input(
       z.object({
         asset: assetSchema,
-        amount: z.number().positive().max(1_000_000_000),
+        amount: z.number().gt(0, "Amount must be > 0").positive().max(1_000_000_000),
         gateway: z.string().min(2).max(50),
       })
     )
@@ -107,7 +107,7 @@ export const walletRouter = router({
     .input(
       z.object({
         asset: assetSchema,
-        amount: z.number().positive().max(1_000_000_000),
+        amount: z.number().gt(0, "Amount must be > 0").positive().max(1_000_000_000),
         address: z.string().min(10).max(200),
         twoFactorCode: z.string().optional(),
       })

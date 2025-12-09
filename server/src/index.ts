@@ -8,6 +8,14 @@ import rateLimit from "express-rate-limit";
 
 const app = express();
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret || sessionSecret.length < 16) {
+  console.warn(
+    "[BitChange] Weak or missing SESSION_SECRET. Do NOT use this config in production."
+  );
+}
+
+
 // ------------------- SECURITY MIDDLEWARE -------------------
 
 // Security headers

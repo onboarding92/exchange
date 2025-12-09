@@ -1,5 +1,21 @@
 import { adminProcedure, authedProcedure, router } from "./trpc";
 import { db } from "./db";
+
+// Ensure we never approve/reject the same withdrawal twice
+function assertPendingWithdrawal(id: number) {
+  const row = db
+    .prepare("SELECT status FROM withdrawals WHERE id=?")
+    .get(id) as { status?: string } | undefined;
+
+  if (!row) {
+    throw new Error("Withdrawal not found");
+  }
+  if (row.status !== "pending") {
+    throw new Error("Withdrawal is not pending anymore");
+  }
+}
+
+
 import {
   sendKycStatusEmail,
   sendWithdrawalStatusEmail,
@@ -389,7 +405,9 @@ forcePasswordChange: adminProcedure
       })
     )
     .mutation(({ input }) => {
-      db.prepare(
+      
+    assertPendingWithdrawal(input.id);
+db.prepare(
         "UPDATE coins SET enabled=?, minWithdraw=?, withdrawFee=? WHERE id=?"
       ).run(
         input.enabled ? 1 : 0,

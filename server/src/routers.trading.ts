@@ -69,8 +69,8 @@ export const tradingRouter = router({
         baseAsset: z.string().min(2).max(10),
         quoteAsset: z.string().min(2).max(10),
         side: z.enum(["buy", "sell"]),
-        price: z.number().positive(),
-        amount: z.number().positive(),
+        price: z.number().gt(0, "Price must be > 0").positive(),
+        amount: z.number().gt(0, "Amount must be > 0").positive(),
       })
     )
     .mutation(({ ctx, input }) => {
