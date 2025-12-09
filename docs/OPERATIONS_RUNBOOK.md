@@ -1,83 +1,138 @@
-# BitChange – Operations Runbook (v1)
+BitChange – Operations Runbook (v1)
+===================================
 
-This document is for day-to-day operation of the exchange.
+This document is for the operator / sysadmin of BitChange.
+It covers common tasks and first-response actions.
 
-It describes what you do on the production server, but here we only
-document the logic. Actual commands will be executed later.
+------------------------------------------------------------
+1. Check if the platform is alive
+------------------------------------------------------------
 
---------------------------------------------------
-1. Concepts
---------------------------------------------------
+From any machine (or monitoring system), call the health endpoint:
 
-- The app runs via Docker Compose (backend plus frontend plus proxy)
-- Database is a single SQLite file named exchange.db
-- Backups are timestamped copies of that file
+- URL: https://exchange.yourdomain.com/health
 
---------------------------------------------------
-2. Basic operational tasks (conceptual)
---------------------------------------------------
+Expected JSON response (example):
 
-Check if services are running:
+- ok: true
+- ts: current timestamp
 
-- backend container is running
-- frontend or proxy container is running
+If this fails or returns error, the backend may be down or misconfigured.
 
-View logs:
+------------------------------------------------------------
+2. Restart the platform (Docker Compose)
+------------------------------------------------------------
 
-- backend logs (Node)
-- frontend or proxy logs (Nginx or similar)
+From the directory containing docker-compose.prod.yml, usually:
 
---------------------------------------------------
-3. Deploy a new version (conceptual)
---------------------------------------------------
+- /srv/exchange
 
-Typical workflow:
+Main commands:
 
-1. Backup the database (exchange.db)
-2. Pull latest code from git
-3. Rebuild images (backend and frontend)
-4. Restart services
-5. Perform a quick smoke test:
-   - login with test user
-   - place a small order
-   - open admin pages
+- docker compose -f docker-compose.prod.yml ps
+  to see running containers.
 
---------------------------------------------------
-4. Restore from backup (conceptual)
---------------------------------------------------
+- docker compose -f docker-compose.prod.yml restart
+  to restart containers without rebuilding.
 
-If something goes wrong:
+When you have updated the code and need to rebuild:
 
-1. Stop the app
-2. Replace exchange.db with a chosen backup copy
-3. Start the app again
-4. Check:
-   - user balances
-   - trading history
+- docker compose -f docker-compose.prod.yml build
+- docker compose -f docker-compose.prod.yml up -d
 
---------------------------------------------------
-5. Emergency actions
---------------------------------------------------
+------------------------------------------------------------
+3. Check backend logs
+------------------------------------------------------------
 
-Freeze withdrawals:
+From /srv/exchange:
 
-- temporarily disable withdrawal endpoints at backend level, or
-- remove withdrawal buttons from frontend and redeploy
+- docker compose -f docker-compose.prod.yml logs server -f
 
-Full shutdown:
+Look for:
 
-- Stop all services
-- Optionally serve maintenance page from the proxy
-- After investigation, restore the database if needed and restart services
+- repeated 5xx errors
+- DB errors
+- failed SMTP connections
+- suspicious patterns in auth / withdrawal flows
 
---------------------------------------------------
-6. Routine checks
---------------------------------------------------
+------------------------------------------------------------
+4. Perform a manual DB backup (SQLite)
+------------------------------------------------------------
 
-- Verify backup job produced a recent backup
-- Check free disk space
-- Review logs for:
-  - suspicious login patterns
-  - high error rates
-- Apply OS security patches
+From /srv/exchange/server (inside the container or on host if volume):
+
+- ./scripts/backup_db.sh /srv/exchange/backups
+
+This creates a timestamped copy of exchange.db.
+
+Recommendations:
+
+- Configure a cron job to run this script daily.
+- Sync /srv/exchange/backups to off-site storage (S3, B2, Spaces, etc.).
+
+------------------------------------------------------------
+5. Temporarily pause withdrawals (incident scenario)
+------------------------------------------------------------
+
+In case of suspected compromise or bug:
+
+1) Restrict admin access to trusted staff only.
+2) Use the admin panel to:
+   - reject or pause pending withdrawals where possible.
+3) If needed, temporarily disable public endpoints (e.g. firewall rules,
+   taking frontend offline, etc.).
+4) Communicate clearly with users that withdrawals are temporarily paused.
+
+If in the future you add a dedicated "maintenance / withdrawals paused"
+flag in the backend, document how to flip it here.
+
+------------------------------------------------------------
+6. Deploying a new version (high level)
+------------------------------------------------------------
+
+1) Pull changes from git:
+
+- cd /srv/exchange
+- git pull origin main
+
+2) Optional but recommended – run tests locally:
+
+- cd server
+- npm install
+- npm test
+
+- cd ../client
+- npm install
+- npm run build
+
+3) Rebuild and restart with Docker:
+
+- cd /srv/exchange
+- docker compose -f docker-compose.prod.yml build
+- docker compose -f docker-compose.prod.yml up -d
+
+4) Check health endpoint again:
+
+- curl https://exchange.yourdomain.com/health
+
+------------------------------------------------------------
+7. First steps in case of suspected incident
+------------------------------------------------------------
+
+Checklist (high level):
+
+1) Do not panic. Act methodically.
+2) Pause withdrawals.
+3) Take a fresh DB backup.
+4) Export relevant logs:
+   - auth/login logs
+   - withdrawal logs
+   - admin action logs (if available)
+5) Identify:
+   - which accounts might be affected
+   - which transactions are suspicious
+6) Inform stakeholders and, if needed, users.
+7) After mitigation:
+   - patch the vulnerability
+   - improve monitoring and alerts to catch similar issues earlier.
 
