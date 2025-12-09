@@ -1,81 +1,54 @@
 #!/usr/bin/env bash
 set -e
 
-# Simple environment sanity-check for BitChange.
-# Run this on the VPS before starting containers:
-#   cd /srv/exchange
-#   server/scripts/check_env.sh
+# Simple checker for required env files and keys in BitChange.
 
-RED="$(printf '\033[31m')"
-YELLOW="$(printf '\033[33m')"
-GREEN="$(printf '\033[32m')"
-RESET="$(printf '\033[0m')"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_ENV="${ROOT_DIR}/.env.production"
+FRONTEND_ENV="${ROOT_DIR}/../client/.env.production"
 
-echo "== BitChange environment check =="
+echo "=== BitChange env check ==="
+echo "Root: ${ROOT_DIR}"
+echo
 
-SERVER_ENV="server/.env.production"
-CLIENT_ENV="client/.env.production"
+missing=0
 
-check_file() {
-  local f="$1"
-  if [ ! -f "$f" ]; then
-    echo "${RED}[MISSING]${RESET} $f does not exist"
-    return 1
+check_key () {
+  local file="$1"
+  local key="$2"
+
+  if [ ! -f "$file" ]; then
+    echo "  [MISSING FILE] $file"
+    missing=1
+    return
+  fi
+
+  if ! grep -q "^${key}=" "$file" 2>/dev/null; then
+    echo "  [MISSING KEY]  ${key} in ${file}"
+    missing=1
   else
-    echo "${GREEN}[OK]${RESET} $f exists"
+    echo "  [OK]           ${key} in $(basename "${file}")"
   fi
 }
 
-check_var() {
-  local f="$1"
-  local var="$2"
-  if ! grep -E "^${var}=" "$f" >/dev/null 2>&1; then
-    echo "${RED}[MISSING VAR]${RESET} $var in $f"
-    return 1
-  fi
-
-  local val
-  val="$(grep -E "^${var}=" "$f" | head -n1 | cut -d '=' -f2-)"
-  if [ -z "$val" ] || echo "$val" | grep -qi "changeme"; then
-    echo "${YELLOW}[WARN]${RESET} $var in $f seems empty or placeholder: '$val'"
-  else
-    echo "${GREEN}[OK]${RESET} $var in $f"
-  fi
-}
-
-overall_ok=0
-
-# 1) Server env
-check_file "$SERVER_ENV" || overall_ok=1
-echo
-echo "-- Checking critical server variables --"
-for v in SESSION_SECRET APP_URL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS FROM_EMAIL; do
-  check_var "$SERVER_ENV" "$v" || overall_ok=1
-done
+echo "--- Backend env: ${BACKEND_ENV} ---"
+check_key "${BACKEND_ENV}" "NODE_ENV"
+check_key "${BACKEND_ENV}" "APP_DOMAIN"
+check_key "${BACKEND_ENV}" "SESSION_SECRET"
+check_key "${BACKEND_ENV}" "SMTP_HOST"
+check_key "${BACKEND_ENV}" "SMTP_PORT"
+check_key "${BACKEND_ENV}" "SMTP_USER"
+check_key "${BACKEND_ENV}" "SMTP_PASS"
+check_key "${BACKEND_ENV}" "SMTP_FROM"
 
 echo
-echo "-- Optional but recommended server vars --"
-for v in CORS_ORIGIN FRONTEND_ORIGIN LOGIN_ALERTS_ENABLED; do
-  if grep -E "^${v}=" "$SERVER_ENV" >/dev/null 2>&1; then
-    check_var "$SERVER_ENV" "$v" || overall_ok=1
-  else
-    echo "${YELLOW}[WARN]${RESET} $v not set in $SERVER_ENV (optional but recommended)"
-  fi
-done
-
-# 2) Client env
-echo
-check_file "$CLIENT_ENV" || overall_ok=1
-echo
-echo "-- Checking critical client variables --"
-for v in VITE_API_BASE VITE_APP_URL; do
-  check_var "$CLIENT_ENV" "$v" || overall_ok=1
-done
+echo "--- Frontend env: ${FRONTEND_ENV} ---"
+check_key "${FRONTEND_ENV}" "VITE_API_URL"
 
 echo
-if [ $overall_ok -eq 0 ]; then
-  echo "${GREEN}Environment check PASSED (no blocking issues detected).${RESET}"
+if [ "${missing}" -eq 0 ]; then
+  echo "=== RESULT: OK – required keys present (according to this checker)."
 else
-  echo "${RED}Environment check finished with issues. See messages above.${RESET}"
+  echo "=== RESULT: MISSING VALUES – fix the lines above before production."
   exit 1
 fi
