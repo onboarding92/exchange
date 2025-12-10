@@ -1,4 +1,5 @@
 import React from "react";
+import { DeviceSessionsSection } from "../components/DeviceSessionsSection";
 
 const Profile: React.FC = () => {
   // TODO: collegare a tRPC per mostrare i dati reali dell utente
@@ -26,7 +27,8 @@ const Profile: React.FC = () => {
           <span className="uppercase">{user.kycStatus}</span>
         </div>
       </div>
-    </div>
+      <DeviceSessionsSection />
+  </div>
   );
 };
 
