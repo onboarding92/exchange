@@ -15,14 +15,28 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/trpc",
       /**
-       * Importantissimo: includiamo i cookie di sessione
-       * in tutte le richieste tRPC (login, wallet, ecc.)
+       * Important: always send session cookies with tRPC calls.
        */
       fetch(url, options) {
         return fetch(url, {
           ...options,
           credentials: "include",
         });
+      },
+      async onError({ error }) {
+        const status = error?.data?.httpStatus;
+        if (status === 401 || status === 403) {
+          // Session expired / unauthorized -> force logout on client
+          try {
+            localStorage.removeItem("authToken");
+          } catch {
+            // ignore storage errors
+          }
+          console.warn("[auth] Session expired or unauthorized, redirecting to /login");
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+        }
       },
     }),
   ],
