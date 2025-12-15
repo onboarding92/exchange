@@ -5,3 +5,7 @@ server/exchange.db-wal
 
 # Vitest cache
 server/node_modules/.vite/vitest/
+# env / secrets
+server/.env*
+client/.env*
+**/*.env*
