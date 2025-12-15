@@ -8,13 +8,23 @@ export function createSession(userId: number) {
   const token = crypto.randomBytes(32).toString("hex");
   const now = new Date().toISOString();
 
+  // Prendi email e role dal DB (fonte di verità)
+  const u = db
+    .prepare("SELECT email, role FROM users WHERE id=?")
+    .get(userId) as { email: string; role: "user" | "admin" } | undefined;
+
+  if (!u?.email || !u?.role) {
+    throw new Error("User not found or missing email/role");
+  }
+
   db.prepare(
-    `INSERT INTO sessions (token, userId, createdAt)
-     VALUES (?, ?, ?)`
-  ).run(token, userId, now);
+    `INSERT INTO sessions (token, userId, email, role, createdAt)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(token, userId, u.email, u.role, now);
 
   return token;
 }
+
 
 export function getSession(token: string | undefined | null) {
   if (!token) return null;

@@ -26,6 +26,8 @@ export const authedProcedure = t.procedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 
+export const protectedProcedure = authedProcedure;
+
 export const adminProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });

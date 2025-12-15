@@ -1,22 +1,25 @@
-# Example Dockerfile for the server (Node + SQLite demo)
-# This is a SIMPLE skeleton and may be adapted to your production needs.
+# Fase 1: Build
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY server/package*.json ./
+RUN npm ci
+COPY server ./
+RUN npm run build
 
+# Fase 2: Produzione (Immagine leggera)
 FROM node:20-alpine
-
 WORKDIR /app
 
-# Install dependencies
-COPY server/package*.json ./
+# Copia solo le dipendenze di produzione
+COPY --from=build /app/package*.json ./
 RUN npm ci --omit=dev
 
-# Copy source
-COPY server ./
+# Copia il codice compilato
+COPY --from=build /app/dist ./dist
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3001
 
-EXPOSE 3000
+EXPOSE 3001
 
-# In real production you would probably build TS -> JS first.
-# For the scope of this demo, we assume "npm start" runs the compiled app
 CMD ["npm", "start"]

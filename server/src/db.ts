@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
+import path from "path";
 import bcrypt from "bcryptjs";
 
-export const db = new Database("exchange.db");
+const dbPath = process.env.DATABASE_FILE || path.join(process.cwd(), "exchange.db");
+export const db = new Database(dbPath);
+
 
 // Basic pragmas
 db.pragma("journal_mode = WAL");

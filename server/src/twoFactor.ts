@@ -21,13 +21,14 @@ db.prepare(`
 
 export function getTwoFactor(userId: number): TwoFactorRecord | undefined {
   return db
-    .prepare(`SELECT * FROM userTwoFactor WHERE userId=?")
+    .prepare(`SELECT * FROM userTwoFactor WHERE userId=?`)
     .get(userId) as any;
 }
 
 export function upsertTwoFactor(userId: number, secret: string, enabled: boolean) {
   const now = new Date().toISOString();
   const existing = getTwoFactor(userId);
+
   if (existing) {
     db.prepare(
       "UPDATE userTwoFactor SET secret=?, enabled=?, updatedAt=? WHERE userId=?"
@@ -48,5 +49,7 @@ export function setTwoFactorEnabled(userId: number, enabled: boolean) {
 }
 
 export function disableTwoFactor(userId: number) {
-  db.prepare("DELETE FROM userTwoFactor WHERE userId=?`)run(userId);
+  db.prepare(
+    "DELETE FROM userTwoFactor WHERE userId=?"
+  ).run(userId);
 }

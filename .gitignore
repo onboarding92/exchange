@@ -9,3 +9,22 @@ server/node_modules/.vite/vitest/
 server/.env*
 client/.env*
 **/*.env*
+
+# dependencies
+**/node_modules/
+server/node_modules/
+client/node_modules/
+
+# build outputs
+client/dist/
+server/dist/
+
+# runtime data / volumes
+data/
+server/exchange-data/
+infra/certbot/
+
+# backups / temp
+*.bak.*
+*.broken.*
+*.log
