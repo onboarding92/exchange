@@ -28,3 +28,13 @@ infra/certbot/
 *.bak.*
 *.broken.*
 *.log
+
+# ===== frontend build / cache =====
+client/dist/
+client/node_modules/
+client/node_modules/.vite/
+client/.vite/
+client/.cache/
+
+# ===== misc =====
+*.log

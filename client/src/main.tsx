@@ -13,7 +13,7 @@ const trpcClient = trpc.createClient({
   transformer: superjson,
   links: [
     httpBatchLink({
-      url: "/trpc",
+      url: "/api",
       /**
        * Important: always send session cookies with tRPC calls.
        */

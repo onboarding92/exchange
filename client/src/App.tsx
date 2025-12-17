@@ -3,7 +3,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
 import { Route, Switch } from "wouter";
-
+import Landing from "./pages/Landing";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
@@ -12,7 +12,9 @@ import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 
 // Pagine utente
+import Landing from "./pages/Landing";
 import Home from "./pages/Home";
+import AppShell from "./components/AppShell";
 import Wallet from "./pages/Wallet";
 import Deposit from "./pages/Deposit";
 import DepositGateway from "./pages/DepositGateway";
@@ -28,6 +30,8 @@ import Security from "./pages/Security";
 import LoginHistory from "./pages/LoginHistory";
 import Kyc from "./pages/Kyc";
 import Prices from "./pages/Prices";
+import Login from "./pages/Login";
+
 
 // Pagine admin
 import AdminLogin from "./pages/AdminLogin";
@@ -45,7 +49,7 @@ function Router() {
   return (
     <Switch>
       {/* User routes */}
-      <Route path="/" component={Home} />
+      <Route path="/" component={Landing} />
       <Route path="/wallet" component={Wallet} />
       <Route path="/deposit" component={Deposit} />
       <Route path="/deposit/gateway" component={DepositGateway} />
@@ -61,7 +65,25 @@ function Router() {
       <Route path="/login-history" component={LoginHistory} />
       <Route path="/kyc" component={Kyc} />
       <Route path="/prices" component={Prices} />
+      <Route path="/login" component={Login} />
+      {/* App (exchange) */}
+      <Route path="/app">
+  <AppShell>
+    <Home />
+  </AppShell>
+</Route>
 
+<Route path="/app/wallet">
+  <AppShell>
+    <Wallet />
+  </AppShell>
+</Route>
+
+<Route path="/app/trading">
+  <AppShell>
+    <Trading />
+  </AppShell>
+</Route>
       {/* Admin routes */}
       <Route path="/admin-login" component={AdminLogin} />
       <Route path="/admin" component={Admin} />

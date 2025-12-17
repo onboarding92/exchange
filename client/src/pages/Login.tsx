@@ -1,51 +1,60 @@
-import { useNotifications } from "../notifications";
 import React, { useState } from "react";
-import { trpc } from "../trpc";
-import { useLocation } from "wouter";
 
 export default function Login() {
-<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
-  Forgot password?
-</p>
-  const { notify } = useNotifications();
- {
-  const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("demo@bitchange.money");
-  const [password, setPassword] = useState("demo123");
-  const [error, setError] = useState("");
-  const loginMutation = trpc.auth.login.useMutation({
-    onSuccess() {
-      notify("success", "Logged in successfully");
-      setLocation("/wallet");
-    },
-    onError(err) {
-      setError(err.message);
-      notify("error", err.message);
-    },
-  });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // Placeholder: collega qui la chiamata tRPC quando vuoi
+    console.log("login submit", { email, password });
+    alert("Login placeholder: collega il backend (tRPC) qui.");
+  }
 
   return (
-    <div style={{ maxWidth: 400 }}>
-      <h2>Login</h2>
-<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
-  Forgot password?
-</p>
-      <div style={{ display: "grid", gap: 8 }}>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          type="password"
-        />
-        <button onClick={() => loginMutation.mutate({ email, password })}>
-          {loginMutation.isLoading ? "Logging in..." : "Login"}
-<p className="mt-2 text-blue-500 underline cursor-pointer" onClick={() => window.location.href="/forgot-password"}>
-  Forgot password?
-</p>
+    <div style={{ maxWidth: 420, margin: "48px auto", padding: 16 }}>
+      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Login</h1>
+      <p style={{ opacity: 0.8, marginBottom: 16 }}>
+        Accedi al tuo account BitChange.
+      </p>
+
+      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          Email
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            placeholder="you@example.com"
+            required
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #333" }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          Password
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            placeholder="••••••••"
+            required
+            style={{ padding: 10, borderRadius: 8, border: "1px solid #333" }}
+          />
+        </label>
+
+        <button
+          type="submit"
+          style={{
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #333",
+            cursor: "pointer",
+          }}
+        >
+          Accedi
         </button>
-        {error && <p style={{ color: "salmon" }}>{error}</p>}
-      </div>
+      </form>
     </div>
   );
 }
